@@ -14,6 +14,7 @@
     "onCommand:androidSupport.adbVersion",
     "onCommand:androidSupport.listDevices",
     "onCommand:androidSupport.build",
+    "onCommand:androidSupport.bundle",
     "onCommand:androidSupport.install",
     "onCommand:androidSupport.clean",
     "onCommand:androidSupport.selectModule",
@@ -25,6 +26,7 @@
       { "command": "androidSupport.adbVersion", "title": "Android: Versão do servidor ADB" },
       { "command": "androidSupport.listDevices", "title": "Android: Listar dispositivos" },
       { "command": "androidSupport.build", "title": "Android: Compilar variante selecionada" },
+      { "command": "androidSupport.bundle", "title": "Android: Gerar AAB da variante selecionada" },
       { "command": "androidSupport.install", "title": "Android: Instalar variante selecionada" },
       { "command": "androidSupport.clean", "title": "Android: Limpar módulo selecionado" },
       { "command": "androidSupport.selectModule", "title": "Android: Selecionar módulo" },
@@ -34,7 +36,7 @@
       "type": "androidGradle",
       "required": ["action", "module", "variant", "rootPath"],
       "properties": {
-        "action": { "type": "string", "enum": ["assemble", "install", "clean"] },
+        "action": { "type": "string", "enum": ["assemble", "bundle", "install", "clean"] },
         "module": { "type": "string" },
         "variant": { "type": "string" },
         "rootPath": { "type": "string" }
@@ -55,7 +57,7 @@
     "compile": "tsc -p .",
     "watch": "tsc -watch -p .",
     "check": "tsc --noEmit -p .",
-    "test": "npm run build:bridge && npm run compile && node --test out/test/*.test.js",
+    "test": "npm run compile && ./gradlew :bridge:test :bridge:installDist && node --test out/test/*.test.js",
     "build:bridge": "./gradlew :bridge:installDist"
   },
   "devDependencies": {

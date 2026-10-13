@@ -38,6 +38,8 @@ export class BridgeClient {
   private readonly eventListeners = new Set<(name: string, data: unknown) => void>();
   private killTimer: NodeJS.Timeout | undefined;
 
+  get isClosed(): boolean { return this.closed; }
+
   private constructor(java: string, libDirectory: string, host: string, port: number, private readonly log: (message: string) => void) {
     const jars = readdirSync(libDirectory).filter(name => name.endsWith('.jar'));
     if (!jars.some(name => /^bridge(?:-.*)?\.jar$/.test(name))) {
@@ -77,7 +79,7 @@ export class BridgeClient {
     return () => this.eventListeners.delete(listener);
   }
 
-  request<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal, device?: string): Promise<T> {
+  request<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal, device?: string, timeoutMs = 15000): Promise<T> {
     if (this.closed) { return Promise.reject(new Error('Serviço Kotlin encerrado.')); }
     if (signal?.aborted) { return Promise.reject(new Error('Operação cancelada.')); }
     const id = String(++this.nextId);
@@ -85,7 +87,7 @@ export class BridgeClient {
       const timer = setTimeout(() => {
         this.cancel(id);
         reject(new Error(`Tempo esgotado: ${method}.`));
-      }, 15000);
+      }, timeoutMs);
       const onAbort = () => {
         this.cancel(id);
         reject(new Error('Operação cancelada.'));

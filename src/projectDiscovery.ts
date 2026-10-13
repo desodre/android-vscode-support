@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 /** Subconjunto de BridgeClient necessário aqui (facilita testes e injeção). */
 export interface BridgeRequester {
-  request<T>(method: string, params?: Record<string, unknown>, signal?: AbortSignal): Promise<T>;
+  request<T>(method: string, params?: Record<string, unknown>, signal?: AbortSignal, device?: string, timeoutMs?: number): Promise<T>;
 }
 
 export type AndroidModuleType = 'application' | 'library' | 'dynamic-feature' | 'test';
@@ -130,7 +130,7 @@ export function normalizeDiscovery(raw: unknown, fallbackRoot: string): AndroidM
 
 /** Descobre os módulos Android de um único build Gradle via Kotlin bridge + Gradle Tooling API. */
 export async function discoverGradleRoot(bridge: BridgeRequester, root: string, signal?: AbortSignal): Promise<AndroidModule[]> {
-  const raw = await bridge.request<unknown>('gradle.discoverProjects', { projectDir: root }, signal);
+  const raw = await bridge.request<unknown>('gradle.discoverProjects', { projectDir: root }, signal, undefined, 300000);
   return normalizeDiscovery(raw, root);
 }
 

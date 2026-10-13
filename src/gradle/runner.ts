@@ -1,14 +1,17 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { ResolvedSelection } from '../selection';
 
-export type GradleAction = 'assemble' | 'install' | 'clean';
+export type GradleAction = 'assemble' | 'bundle' | 'install' | 'clean';
 
 export interface GradleSelection {
   rootPath: string;
   modulePath: string;
   moduleDirectory?: string;
   variant: string;
+  applicationId?: string | null;
+  runnable?: boolean;
 }
 
 export interface GradleRunResult {
@@ -16,14 +19,26 @@ export interface GradleRunResult {
   cancelled: boolean;
 }
 
-const MODULE_PATH = /^:[A-Za-z_][A-Za-z0-9_-]*(?::[A-Za-z_][A-Za-z0-9_-]*)*$/;
+export function toGradleSelection(resolved: ResolvedSelection): GradleSelection {
+  return {
+    rootPath: resolved.module.root,
+    modulePath: resolved.module.path,
+    moduleDirectory: resolved.module.projectDir,
+    variant: resolved.variant.name,
+    applicationId: resolved.variant.applicationId,
+    runnable: resolved.module.runnable,
+  };
+}
+
+const MODULE_PATH = /^(?::|:[A-Za-z_][A-Za-z0-9_-]*(?::[A-Za-z_][A-Za-z0-9_-]*)*)$/;
 const VARIANT_NAME = /^[a-z][A-Za-z0-9]*$/;
 
 export function gradleTaskName(selection: GradleSelection, action: GradleAction): string {
   if (!MODULE_PATH.test(selection.modulePath)) { throw new Error(`Módulo Gradle inválido: ${selection.modulePath}`); }
   if (!VARIANT_NAME.test(selection.variant)) { throw new Error(`Variante Android inválida: ${selection.variant}`); }
-  if (action === 'clean') { return `${selection.modulePath}:clean`; }
-  return `${selection.modulePath}:${action}${selection.variant[0].toUpperCase()}${selection.variant.slice(1)}`;
+  const base = selection.modulePath === ':' ? '' : selection.modulePath;
+  if (action === 'clean') { return `${base}:clean`; }
+  return `${base}:${action}${selection.variant[0].toUpperCase()}${selection.variant.slice(1)}`;
 }
 
 function stopProcess(pid: number | undefined, force: boolean): void {
@@ -43,7 +58,7 @@ function stopProcess(pid: number | undefined, force: boolean): void {
 export function runGradle(
   selection: GradleSelection,
   action: GradleAction,
-  onOutput: (chunk: string) => void,
+  onOutput: (chunk: string, stream: 'stdout' | 'stderr') => void,
   signal?: AbortSignal,
 ): Promise<GradleRunResult> {
   const task = gradleTaskName(selection, action);
@@ -80,8 +95,8 @@ export function runGradle(
     signal?.addEventListener('abort', abort, { once: true });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => onOutput(chunk));
-    child.stderr.on('data', (chunk: string) => onOutput(chunk));
+    child.stdout.on('data', (chunk: string) => onOutput(chunk, 'stdout'));
+    child.stderr.on('data', (chunk: string) => onOutput(chunk, 'stderr'));
     child.once('error', error => finish(undefined, error));
     child.once('close', code => finish({ exitCode: cancelled ? 130 : code ?? 1, cancelled }));
     if (signal?.aborted) { abort(); }

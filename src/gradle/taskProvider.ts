@@ -41,18 +41,23 @@ class GradleTerminal implements vscode.Pseudoterminal {
       issues.set(uri.toString(), list);
       this.diagnostics.set(uri, list);
     };
-    const collector = new BuildIssueCollector(this.selection.rootPath, addIssue);
+    const collectors = {
+      stdout: new BuildIssueCollector(this.selection.rootPath, addIssue),
+      stderr: new BuildIssueCollector(this.selection.rootPath, addIssue),
+    };
     this.diagnostics.clear();
     this.writeEmitter.fire(`Executando ${task}\r\n`);
-    void runGradle(this.selection, this.action, chunk => {
+    void runGradle(this.selection, this.action, (chunk, stream) => {
       this.writeEmitter.fire(chunk.replace(/\r?\n/g, '\r\n'));
-      collector.write(chunk);
+      collectors[stream].write(chunk);
     }, this.controller.signal).then(result => {
-      collector.flush();
+      collectors.stdout.flush();
+      collectors.stderr.flush();
       if (result.cancelled) { this.writeEmitter.fire('\r\nBuild cancelado.\r\n'); }
-      else if (result.exitCode === 0 && this.action === 'assemble') {
+      else if (result.exitCode === 0 && (this.action === 'assemble' || this.action === 'bundle')) {
         try {
-          const artifacts = findBuiltArtifacts(this.selection);
+          const type = this.action === 'bundle' ? 'AAB' : 'APK';
+          const artifacts = findBuiltArtifacts(this.selection, this.selection.applicationId ?? null).filter(artifact => artifact.type === type);
           this.onBuilt?.(artifacts);
           if (artifacts.length === 0) { this.writeEmitter.fire('Nenhum APK/AAB encontrado para esta variante.\r\n'); }
           for (const artifact of artifacts) {
@@ -93,29 +98,31 @@ export function createGradleTask(
   const scope = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(selection.rootPath)) ?? vscode.TaskScope.Workspace;
   const task = new vscode.Task(definition, scope, name, 'Android',
     new vscode.CustomExecution(async () => new GradleTerminal(selection, action, diagnostics, onBuilt)));
-  task.group = action === 'assemble' ? vscode.TaskGroup.Build : undefined;
+  task.group = action === 'assemble' || action === 'bundle' ? vscode.TaskGroup.Build : undefined;
   task.presentationOptions = { reveal: vscode.TaskRevealKind.Always, panel: vscode.TaskPanelKind.Shared };
   return task;
 }
 
 export function registerGradleTaskProvider(
-  getSelection: () => Promise<GradleSelection | undefined>,
+  getSelection: (refresh: boolean) => Promise<GradleSelection | undefined>,
   diagnostics: vscode.DiagnosticCollection,
   onBuilt?: (artifacts: BuiltArtifact[]) => void,
 ): vscode.Disposable {
   return vscode.tasks.registerTaskProvider(TASK_TYPE, {
     provideTasks: async () => {
       if (!vscode.workspace.isTrusted) { return []; }
-      const selection = await getSelection();
-      return selection ? (['assemble', 'install', 'clean'] as const).map(action =>
+      const selection = await getSelection(false);
+      const actions: GradleAction[] = selection?.runnable === false ? ['assemble', 'clean'] : ['assemble', 'bundle', 'install', 'clean'];
+      return selection ? actions.map(action =>
         createGradleTask(selection, action, diagnostics, onBuilt)) : [];
     },
     resolveTask: async task => {
       if (!vscode.workspace.isTrusted) { return undefined; }
-      const selection = await getSelection();
+      const selection = await getSelection(true);
       const definition = task.definition as AndroidTaskDefinition;
       if (!selection || selection.rootPath !== definition.rootPath || selection.modulePath !== definition.module ||
-          selection.variant !== definition.variant || !['assemble', 'install', 'clean'].includes(definition.action)) {
+          selection.variant !== definition.variant || !['assemble', 'bundle', 'install', 'clean'].includes(definition.action) ||
+          (selection.runnable === false && (definition.action === 'bundle' || definition.action === 'install'))) {
         return undefined;
       }
       return createGradleTask(selection, definition.action, diagnostics, onBuilt);

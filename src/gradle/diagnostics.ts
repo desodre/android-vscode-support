@@ -14,7 +14,7 @@ const patterns = [
   new RegExp(`^e: ${SOURCE}:\\s*\\((\\d+),\\s*(\\d+)\\):\\s*(.+)$`),
   new RegExp(`^e: ${SOURCE}:(\\d+):(\\d+):\\s*(.+)$`),
   new RegExp(`^${SOURCE}:(\\d+):(\\d+):\\s*(error|warning):\\s*(.+)$`),
-  new RegExp(`^${SOURCE}:(\\d+):\\s*(error|warning):\\s*(.+)$`),
+  new RegExp(`^${SOURCE}:(\\d+):\\s*(?:AAPT:\\s*)?(error|warning):\\s*(.+)$`),
 ];
 
 function normalizeFile(root: string, value: string): string {

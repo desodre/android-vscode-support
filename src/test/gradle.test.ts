@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { findBuiltArtifacts } from '../gradle/artifacts';
 import { BuildIssueCollector, parseBuildIssue } from '../gradle/diagnostics';
-import { GradleSelection, gradleTaskName, runGradle } from '../gradle/runner';
+import { GradleSelection, gradleTaskName, runGradle, toGradleSelection } from '../gradle/runner';
 
 const roots: string[] = [];
 function temporaryRoot(): string {
@@ -19,8 +19,21 @@ test('forma tarefas para o módulo e a variante selecionados', () => {
   const selection = { rootPath: '/project', modulePath: ':feature:demo', variant: 'freeDebug' };
   assert.equal(gradleTaskName(selection, 'assemble'), ':feature:demo:assembleFreeDebug');
   assert.equal(gradleTaskName(selection, 'install'), ':feature:demo:installFreeDebug');
+  assert.equal(gradleTaskName(selection, 'bundle'), ':feature:demo:bundleFreeDebug');
   assert.equal(gradleTaskName(selection, 'clean'), ':feature:demo:clean');
+  assert.equal(gradleTaskName({ ...selection, modulePath: ':' }, 'assemble'), ':assembleFreeDebug');
   assert.throws(() => gradleTaskName({ ...selection, modulePath: ':feature;rm' }, 'assemble'));
+});
+
+test('a seleção persistida determina módulo, variante e applicationId do build', () => {
+  const resolved = {
+    module: { root: '/workspace', path: ':app', projectDir: '/workspace/custom-app' },
+    variant: { name: 'paidRelease', applicationId: 'example.paid' },
+  } as Parameters<typeof toGradleSelection>[0];
+  const target = toGradleSelection(resolved);
+  assert.equal(gradleTaskName(target, 'assemble'), ':app:assemblePaidRelease');
+  assert.equal(target.moduleDirectory, '/workspace/custom-app');
+  assert.equal(target.applicationId, 'example.paid');
 });
 
 test('executa o wrapper da raiz sem shell e preserva argumentos', async () => {
@@ -57,6 +70,9 @@ test('converte mensagens Kotlin e Java em localização clicável', () => {
   const java = parseBuildIssue(root, `${root}/app/src/main/Bar.java:7: error: cannot find symbol`);
   assert.deepEqual(java, { file: join(root, 'app/src/main/Bar.java'), line: 7, column: 1,
     message: 'cannot find symbol', severity: 'error' });
+  const xml = parseBuildIssue(root, `${root}/app/src/main/res/layout/main.xml:4: AAPT: error: resource missing`);
+  assert.deepEqual(xml, { file: join(root, 'app/src/main/res/layout/main.xml'), line: 4, column: 1,
+    message: 'resource missing', severity: 'error' });
   const found: string[] = [];
   const collector = new BuildIssueCollector(root, issue => found.push(issue.message));
   collector.write(`${root}/app/src/main/Bar.java:7: error: cannot`);

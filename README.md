@@ -30,3 +30,11 @@ npm test
 ```
 
 O teste integrado usa um servidor ADB simulado em uma porta local. Ele não exige dispositivo físico.
+
+## Etapa 02 em desenvolvimento
+
+Com uma pasta Android Gradle aberta, execute **Android: Selecionar módulo** e **Android: Selecionar variante**. A seleção aparece na barra de status e é preservada no workspace. A descoberta consulta o Gradle Tooling API e o `androidComponents` público do Android Gradle Plugin; a extensão não lê o conteúdo de `build.gradle` para inferir módulos ou variantes.
+
+Os comandos **Android: Compilar variante selecionada**, **Android: Gerar AAB da variante selecionada**, **Android: Instalar variante selecionada** e **Android: Limpar módulo selecionado** criam tarefas do VS Code que chamam o wrapper Gradle do projeto. A saída aparece no terminal da tarefa e pode ser cancelada. Erros Kotlin, Java e XML com arquivo e linha são mostrados em **Problemas**. Após `assemble` ou `bundle`, o terminal lista o APK ou AAB da variante e o `applicationId` quando disponível.
+
+A instalação pelo Gradle ainda não oferece seleção de dispositivo; isso faz parte da Etapa 03. A leitura dos artefatos APK usa os metadados gerados pelo Android Gradle Plugin e valida o nome da variante antes de exibir os arquivos.
