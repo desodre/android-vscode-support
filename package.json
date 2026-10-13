@@ -1,0 +1,46 @@
+{
+  "name": "android-vscode-support",
+  "displayName": "Android VS Code Support",
+  "description": "Native Android development support for VS Code",
+  "version": "0.1.0",
+  "publisher": "desodre",
+  "license": "MIT",
+  "private": true,
+  "engines": { "vscode": "^1.100.0" },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:androidSupport.diagnose",
+    "onCommand:androidSupport.adbVersion",
+    "onCommand:androidSupport.listDevices"
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "androidSupport.diagnose", "title": "Android: Diagnosticar ambiente" },
+      { "command": "androidSupport.adbVersion", "title": "Android: Versão do servidor ADB" },
+      { "command": "androidSupport.listDevices", "title": "Android: Listar dispositivos" }
+    ],
+    "configuration": {
+      "title": "Android VS Code Support",
+      "properties": {
+        "androidSupport.javaHome": { "type": "string", "default": "", "description": "Caminho do JDK 17+ usado pelo serviço Kotlin. Vazio usa JAVA_HOME ou java no PATH." },
+        "androidSupport.sdkPath": { "type": "string", "default": "", "description": "Caminho do Android SDK. Vazio usa ANDROID_HOME, ANDROID_SDK_ROOT ou o caminho padrão." },
+        "androidSupport.bridgeLibDirectory": { "type": "string", "default": "", "description": "Diretório lib da distribuição Kotlin. Vazio usa o serviço incluído na extensão." },
+        "androidSupport.adbHost": { "type": "string", "default": "127.0.0.1", "description": "Endereço do servidor ADB." },
+        "androidSupport.adbPort": { "type": "number", "default": 5037, "minimum": 1, "maximum": 65535, "description": "Porta do servidor ADB." }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "check": "tsc --noEmit -p .",
+    "test": "npm run build:bridge && npm run compile && node --test out/test/*.test.js",
+    "build:bridge": "./gradlew :bridge:installDist"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.100.0",
+    "typescript": "^5.9.3"
+  }
+}

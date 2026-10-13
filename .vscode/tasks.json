@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Preparar extensão",
+      "type": "shell",
+      "command": "npm run compile && ./gradlew :bridge:installDist",
+      "group": "build",
+      "problemMatcher": "$tsc"
+    }
+  ]
+}
