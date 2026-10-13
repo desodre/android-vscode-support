@@ -1,0 +1,87 @@
+// Init script injetado pelo Tooling API. Usa apenas APIs públicas do Gradle e do AGP
+// (AndroidComponentsExtension: finalizeDsl/onVariants). Nunca lê build.gradle(.kts).
+import groovy.json.JsonOutput
+import org.gradle.tooling.provider.model.ToolingModelBuilder
+import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry
+
+import javax.inject.Inject
+import java.util.concurrent.ConcurrentHashMap
+
+def MODEL_NAME = 'io.github.desodre.androidvscodesupport.AndroidDiscoveryModel'
+def PLUGINS = [
+    'com.android.application'    : 'application',
+    'com.android.library'        : 'library',
+    'com.android.dynamic-feature': 'dynamic-feature',
+    'com.android.test'           : 'test',
+]
+
+gradle.ext.androidDiscovery = new ConcurrentHashMap<String, Map>()
+
+gradle.allprojects { Project p ->
+    PLUGINS.each { pluginId, type ->
+        p.pluginManager.withPlugin(pluginId) {
+            def info = [type: type, namespace: null, variants: Collections.synchronizedList([])]
+            gradle.ext.androidDiscovery[p.path] = info
+            def components = p.extensions.findByName('androidComponents')
+            if (components == null) return
+            components.finalizeDsl { dsl ->
+                try { info.namespace = dsl.namespace } catch (Throwable ignored) { }
+            }
+            components.onVariants(components.selector().all()) { variant ->
+                def flavors = []
+                try {
+                    variant.productFlavors.each { flavors << [dimension: it.first, name: it.second] }
+                } catch (Throwable ignored) { }
+                def applicationId = null
+                if (type == 'application') {
+                    try { applicationId = variant.applicationId.getOrNull() } catch (Throwable ignored) { }
+                }
+                info.variants << [
+                    name         : variant.name,
+                    buildType    : variant.buildType,
+                    flavors      : flavors,
+                    applicationId: applicationId,
+                ]
+            }
+        }
+    }
+}
+
+class DiscoveryModel implements Serializable {
+    String json
+    String getJson() { json }
+}
+
+class DiscoveryBuilder implements ToolingModelBuilder {
+    final String modelName
+    DiscoveryBuilder(String modelName) { this.modelName = modelName }
+
+    boolean canBuild(String name) { name == modelName }
+
+    Object buildAll(String name, Project root) {
+        root.evaluationDependsOnChildren()
+        def found = root.gradle.ext.androidDiscovery
+        def projects = root.allprojects.sort { it.path }.collect { Project p ->
+            [path: p.path, name: p.name, projectDir: p.projectDir.absolutePath, android: found[p.path]]
+        }
+        new DiscoveryModel(json: JsonOutput.toJson([
+            rootDir      : root.rootDir.absolutePath,
+            gradleVersion: root.gradle.gradleVersion,
+            projects     : projects,
+        ]))
+    }
+}
+
+class DiscoveryPlugin implements Plugin<Project> {
+    final ToolingModelBuilderRegistry registry
+    final String modelName
+
+    @Inject DiscoveryPlugin(ToolingModelBuilderRegistry registry) {
+        this.registry = registry
+        this.modelName = 'io.github.desodre.androidvscodesupport.AndroidDiscoveryModel'
+    }
+
+    void apply(Project project) { registry.register(new DiscoveryBuilder(modelName)) }
+}
+
+gradle.rootProject { it.apply plugin: DiscoveryPlugin }

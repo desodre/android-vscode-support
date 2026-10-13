@@ -99,4 +99,5 @@ test('encerra o processo Kotlin ao desativar o cliente', async () => {
   const exited = once(process, 'exit', { signal: AbortSignal.timeout(3000) });
   client.dispose();
   await exited;
+  assert.equal(client.isClosed, true);
 });
