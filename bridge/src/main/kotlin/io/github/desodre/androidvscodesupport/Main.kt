@@ -17,6 +17,9 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.concurrent.ConcurrentHashMap
@@ -54,7 +57,7 @@ private fun emit(message: Outgoing) {
     }
 }
 
-private suspend fun handle(method: String, client: AdbClient): JsonElement = when (method) {
+private suspend fun handle(method: String, params: JsonObject, client: AdbClient): JsonElement = when (method) {
     "bridge.hello" -> buildJsonObject { put("protocolVersion", PROTOCOL_VERSION) }
     "server.version" -> buildJsonObject { put("version", client.version().value) }
     "devices.list" -> buildJsonArray {
@@ -69,6 +72,10 @@ private suspend fun handle(method: String, client: AdbClient): JsonElement = whe
             })
         }
     }
+    "gradle.discoverProjects" -> GradleDiscovery.discover(
+        java.io.File(params["projectDir"]?.jsonPrimitive?.contentOrNull ?: throw IllegalArgumentException("projectDir obrigatório.")),
+        params["gradleUserHome"]?.jsonPrimitive?.contentOrNull?.let(::File),
+    )
     else -> throw IllegalArgumentException("Operação desconhecida: $method")
 }
 
@@ -106,7 +113,7 @@ fun main(args: Array<String>) = runBlocking {
         }
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
-                emit(Outgoing(type = "response", id = id, result = handle(message.method, client)))
+                emit(Outgoing(type = "response", id = id, result = handle(message.method, message.params, client)))
             } catch (_: CancellationException) {
                 emit(Outgoing(type = "response", id = id, error = WireError("CANCELLED", "Operação cancelada.")))
             } catch (error: Exception) {
