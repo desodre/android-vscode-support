@@ -46,3 +46,11 @@ A leitura dos artefatos APK usa os metadados gerados pelo Android Gradle Plugin 
 **Android: Instalar variante selecionada** compila a variante, solicita um dispositivo e instala o APK com `adb-utils`. **Android: Compilar, instalar e executar aplicativo** permite escolher um dispositivo conectado ou iniciar um AVD existente, depois instala e inicia a Activity `MAIN/LAUNCHER`. **Android: Parar aplicativo selecionado** encerra o pacote no dispositivo escolhido. Quando o build produz vários APKs, a extensão pede qual deles instalar; não combina APKs filtrados como se fossem necessariamente um conjunto de splits.
 
 Para iniciar um AVD, o SDK precisa ter Android Emulator e Platform-Tools, e o servidor ADB deve usar `127.0.0.1:5037`. O serviço Kotlin instala um APK por vez; APKs maiores que 512 MiB exigem outro fluxo de instalação. A localização de artefatos ainda assume o diretório `build/outputs` padrão do módulo.
+
+## Etapa 04 em desenvolvimento: edição e recursos
+
+Ao abrir XML Android, Kotlin ou Java, a extensão oferece **Ir para Definição** para referências `@tipo/nome` e `R.tipo.nome`. Quando um módulo e uma variante foram selecionados, a busca considera os source sets dessa variante e os módulos locais declarados como dependências Gradle. A opção `androidSupport.xmlLocalResourceDiagnostics` permite avisos sobre recursos não encontrados no índice; ela começa desativada porque recursos de bibliotecas externas e gerados ainda não são indexados.
+
+Os diagnósticos de build agora são descartados quando a variante muda, o arquivo é editado ou o build é cancelado. Um build antigo não substitui diagnósticos de um build mais recente; mensagens iguais de Gradle e dos servidores de linguagem são exibidas uma vez quando coincidem na localização e no texto.
+
+Para conclusão, navegação e refatoração gerais de Kotlin/Java, a estratégia é usar as extensões Kotlin by JetBrains e Language Support for Java by Red Hat. Consulte a [prova e matriz de aceitação](docs/language-support.md). O suporte Android desses servidores ainda precisa ser validado em um projeto misto com flavors antes de concluir a etapa.

@@ -10,6 +10,9 @@
   "categories": ["Other"],
   "main": "./out/extension.js",
   "activationEvents": [
+    "onLanguage:xml",
+    "onLanguage:kotlin",
+    "onLanguage:java",
     "onCommand:androidSupport.diagnose",
     "onCommand:androidSupport.adbVersion",
     "onCommand:androidSupport.listDevices",
@@ -61,7 +64,8 @@
         "androidSupport.sdkPath": { "type": "string", "default": "", "description": "Caminho do Android SDK. Vazio usa ANDROID_HOME, ANDROID_SDK_ROOT ou o caminho padrão." },
         "androidSupport.bridgeLibDirectory": { "type": "string", "default": "", "description": "Diretório lib da distribuição Kotlin. Vazio usa o serviço incluído na extensão." },
         "androidSupport.adbHost": { "type": "string", "default": "127.0.0.1", "description": "Endereço do servidor ADB." },
-        "androidSupport.adbPort": { "type": "number", "default": 5037, "minimum": 1, "maximum": 65535, "description": "Porta do servidor ADB." }
+        "androidSupport.adbPort": { "type": "number", "default": 5037, "minimum": 1, "maximum": 65535, "description": "Porta do servidor ADB." },
+        "androidSupport.xmlLocalResourceDiagnostics": { "type": "boolean", "default": false, "description": "Avisar sobre referências XML não encontradas nos módulos locais indexados. Pode sinalizar recursos fornecidos por bibliotecas externas ou gerados." }
       }
     }
   },

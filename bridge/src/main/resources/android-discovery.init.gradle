@@ -3,6 +3,7 @@
 import groovy.json.JsonOutput
 import org.gradle.tooling.provider.model.ToolingModelBuilder
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry
+import org.gradle.api.artifacts.ProjectDependency
 
 import javax.inject.Inject
 import java.util.concurrent.ConcurrentHashMap
@@ -62,7 +63,34 @@ class DiscoveryBuilder implements ToolingModelBuilder {
         root.evaluationDependsOnChildren()
         def found = root.gradle.ext.androidDiscovery
         def projects = root.allprojects.sort { it.path }.collect { Project p ->
-            [path: p.path, name: p.name, projectDir: p.projectDir.absolutePath, android: found[p.path]]
+            def android = found[p.path]
+            def androidResult = android == null ? null : new LinkedHashMap(android)
+            if (androidResult != null) {
+                androidResult.variants = android.variants.collect { variant ->
+                    def sourceSets = ['main']
+                    sourceSets.addAll(variant.flavors.collect { it.name })
+                    if (variant.flavors.size() > 1) {
+                        sourceSets << (variant.flavors[0].name + variant.flavors.drop(1).collect {
+                            it.name.capitalize()
+                        }.join(''))
+                    }
+                    if (variant.buildType) sourceSets << variant.buildType
+                    sourceSets << variant.name
+                    def configurations = sourceSets.collectMany { sourceSet ->
+                        def prefix = sourceSet == 'main' ? '' : sourceSet
+                        ['Implementation', 'Api'].collect { scope ->
+                            prefix ? prefix + scope : scope.uncapitalize()
+                        }
+                    }
+                    def dependencies = configurations.collectMany { configurationName ->
+                        def configuration = p.configurations.findByName(configurationName)
+                        configuration == null ? [] : configuration.dependencies.withType(ProjectDependency)
+                            .collect { it.path }
+                    }.unique().sort()
+                    new LinkedHashMap(variant) + [projectDependencies: dependencies]
+                }
+            }
+            [path: p.path, name: p.name, projectDir: p.projectDir.absolutePath, android: androidResult]
         }
         new DiscoveryModel(json: JsonOutput.toJson([
             rootDir      : root.rootDir.absolutePath,

@@ -16,7 +16,8 @@ const raw = (rootDir: string) => ({
         type: 'application', namespace: 'com.example',
         variants: [
           { name: 'paidRelease', buildType: 'release', flavors: [{ dimension: 'tier', name: 'paid' }], applicationId: 'com.example.paid' },
-          { name: 'freeDebug', buildType: 'debug', flavors: [{ dimension: 'tier', name: 'free' }], applicationId: null },
+          { name: 'freeDebug', buildType: 'debug', flavors: [{ dimension: 'tier', name: 'free' }], applicationId: null,
+            projectDependencies: [':lib', ':lib', 'external', 7] },
           { name: 'freeDebug', buildType: 'debug', flavors: [] },
           { bogus: true }
         ]
@@ -38,6 +39,7 @@ test('normaliza módulos Android, variantes, flavors e build types', () => {
   assert.deepEqual(app.flavorDimensions, ['tier']);
   assert.deepEqual(app.flavors, [{ dimension: 'tier', name: 'free' }, { dimension: 'tier', name: 'paid' }]);
   assert.equal(app.variants[1].applicationId, 'com.example.paid');
+  assert.deepEqual(app.variants[0].projectDependencies, [':lib']);
   assert.equal(modules[1].runnable, false);
 });
 

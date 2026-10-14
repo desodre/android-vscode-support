@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { BuiltArtifact, findBuiltArtifacts } from './artifacts';
 import { BuildIssue, BuildIssueCollector } from './diagnostics';
+import { BuildDiagnosticCoordinator, buildTargetKey } from './diagnosticCoordinator';
 import { GradleAction, GradleSelection, gradleTaskName, runGradle } from './runner';
 
 const TASK_TYPE = 'androidGradle';
@@ -23,29 +24,18 @@ class GradleTerminal implements vscode.Pseudoterminal {
   constructor(
     private readonly selection: GradleSelection,
     private readonly action: GradleAction,
-    private readonly diagnostics: vscode.DiagnosticCollection,
+    private readonly diagnostics: BuildDiagnosticCoordinator,
     private readonly onBuilt?: (artifacts: BuiltArtifact[]) => void,
   ) {}
 
   open(): void {
     const task = gradleTaskName(this.selection, this.action);
-    const issues = new Map<string, vscode.Diagnostic[]>();
-    const addIssue = (issue: BuildIssue) => {
-      const uri = vscode.Uri.file(issue.file);
-      const range = new vscode.Range(issue.line - 1, issue.column - 1, issue.line - 1, issue.column);
-      const diagnostic = new vscode.Diagnostic(range, issue.message,
-        issue.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
-      diagnostic.source = 'Android Gradle';
-      const list = issues.get(uri.toString()) ?? [];
-      list.push(diagnostic);
-      issues.set(uri.toString(), list);
-      this.diagnostics.set(uri, list);
-    };
+    const session = this.diagnostics.begin(buildTargetKey(this.selection));
+    const addIssue = (issue: BuildIssue) => session.add(issue);
     const collectors = {
       stdout: new BuildIssueCollector(this.selection.rootPath, addIssue),
       stderr: new BuildIssueCollector(this.selection.rootPath, addIssue),
     };
-    this.diagnostics.clear();
     this.writeEmitter.fire(`Executando ${task}\r\n`);
     void runGradle(this.selection, this.action, (chunk, stream) => {
       this.writeEmitter.fire(chunk.replace(/\r?\n/g, '\r\n'));
@@ -53,6 +43,7 @@ class GradleTerminal implements vscode.Pseudoterminal {
     }, this.controller.signal).then(result => {
       collectors.stdout.flush();
       collectors.stderr.flush();
+      session.finish(result.cancelled);
       if (result.cancelled) { this.writeEmitter.fire('\r\nBuild cancelado.\r\n'); }
       else if (result.exitCode === 0 && (this.action === 'assemble' || this.action === 'bundle')) {
         try {
@@ -69,6 +60,7 @@ class GradleTerminal implements vscode.Pseudoterminal {
       }
       this.finish(result.exitCode);
     }, error => {
+      session.finish(true);
       this.writeEmitter.fire(`\r\nFalha ao executar Gradle: ${String(error)}\r\n`);
       this.finish(1);
     });
@@ -88,7 +80,7 @@ class GradleTerminal implements vscode.Pseudoterminal {
 export function createGradleTask(
   selection: GradleSelection,
   action: GradleAction,
-  diagnostics: vscode.DiagnosticCollection,
+  diagnostics: BuildDiagnosticCoordinator,
   onBuilt?: (artifacts: BuiltArtifact[]) => void,
 ): vscode.Task {
   const name = gradleTaskName(selection, action);
@@ -105,7 +97,7 @@ export function createGradleTask(
 
 export function registerGradleTaskProvider(
   getSelection: (refresh: boolean) => Promise<GradleSelection | undefined>,
-  diagnostics: vscode.DiagnosticCollection,
+  diagnostics: BuildDiagnosticCoordinator,
   onBuilt?: (artifacts: BuiltArtifact[]) => void,
 ): vscode.Disposable {
   return vscode.tasks.registerTaskProvider(TASK_TYPE, {

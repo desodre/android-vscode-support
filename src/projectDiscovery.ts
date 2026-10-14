@@ -15,6 +15,8 @@ export interface AndroidVariant {
   buildType: string;
   flavors: FlavorSelection[];
   applicationId: string | null;
+  /** Direct Gradle project dependencies declared for this variant. */
+  projectDependencies?: string[];
 }
 
 export interface AndroidModule {
@@ -109,7 +111,11 @@ export function normalizeDiscovery(raw: unknown, fallbackRoot: string): AndroidM
           flavors.push({ dimension: text(flavor.dimension) ?? '', name: String(flavor.name) });
         }
       }
-      variants.push({ name, buildType: text(variant.buildType) ?? '', flavors, applicationId: text(variant.applicationId) });
+      const projectDependencies = Array.isArray(variant.projectDependencies)
+        ? [...new Set(variant.projectDependencies.filter((dependency): dependency is string =>
+          typeof dependency === 'string' && dependency.startsWith(':')))] : [];
+      variants.push({ name, buildType: text(variant.buildType) ?? '', flavors,
+        applicationId: text(variant.applicationId), projectDependencies });
     }
     variants.sort((a, b) => a.name.localeCompare(b.name));
     const flavors: FlavorSelection[] = [];
