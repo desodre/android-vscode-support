@@ -31,6 +31,8 @@ Após a primeira prova, a descoberta Gradle passou a informar dependências de p
 
 Uma chamada à API de definição do VS Code para `R.string.test_label` no arquivo Kotlin devolveu `app/src/main/res/values/strings.xml`. O comando de diagnóstico da extensão concluiu. As chamadas de conclusão nos arquivos Kotlin e Java devolveram itens, mas a prova ainda não verificou se incluíam símbolos do Android SDK ou referências cruzadas. A chamada de definição para uma classe Java de `:fixture` usada pelo Kotlin de `:app` devolveu zero destinos. O servidor Java informou que `FixtureActivity.java` não estava no classpath de `:fixture` e só reportaria erros de sintaxe. Não houve diagnóstico Kotlin ou XML naquele instante. Esses resultados impedem marcar #23 como concluída.
 
+Uma segunda execução com perfil novo observou o mesmo aviso de classpath e zero destinos para Kotlin → Java após 30 e 90 segundos. O comando `java.project.getAll` listou `:app` e `:fixture`, mas `java.project.listSourcePaths` para o arquivo Java devolveu lista vazia nas duas medições. Portanto, esperar mais pela sincronização não resolveu a ausência de source paths no modelo do servidor Java. O problema foi reproduzido sem modificar o perfil pessoal do VS Code.
+
 A próxima prova deve inspecionar a sincronização de ambos os servidores, confirmar itens de conclusão específicos do Android, repetir navegação cruzada após importação completa e executar renomeações com recompilação. Registrar o aviso de classpath com a fixture e as versões acima ao investigar se a causa está na importação Android do servidor Java, no ambiente de prova ou na configuração da extensão.
 
 ## Fixture mínima de aceitação
