@@ -1,6 +1,6 @@
 # Prova de suporte a Kotlin e Java em projetos Android Gradle
 
-**Escopo:** etapa 4, issue #23. Estado em 14/10/2026: decisão de integração tomada; critérios de edição Android ainda não comprovados em um projeto de referência.
+**Escopo:** etapa 4, issue #23. Estado em 14/10/2026: decisão de integração tomada e primeira prova em projeto Android executada; critérios de edição Android ainda não comprovados por completo.
 
 ## Decisão
 
@@ -17,11 +17,19 @@ O [registro de versões do Kotlin LSP](https://github.com/Kotlin/kotlin-lsp/blob
 | VS Code | `1.132.0`, Linux x64 | Ambiente inicial da prova. |
 | Java | OpenJDK `26.0.1` no `PATH` | Atende ao mínimo de JDK 25 do Kotlin LSP. A extensão Java usa JRE incluído nas plataformas suportadas; a versão universal sem JRE exige Java 25. Confirmar qual JVM cada extensão inicia. |
 | Servidor Java | `redhat.java@1.57.0` instalado | Pode ser testado após ativar importação Android. |
-| Kotlin oficial | `jetbrains.kotlin-server` ausente | A prova de conclusão/navegação/refatoração Kotlin não foi executada. |
+| Kotlin oficial | `jetbrains.kotlin-server@0.0.13` instalado em perfil isolado | A extensão ativou; a navegação Kotlin para Java entre módulos ainda não funcionou na prova. |
 | Kotlin legado | `fwcd.kotlin@0.2.36` e `mathiasfrohlich.kotlin@1.7.1` instalados | Desativar ambos no perfil de prova para evitar sobreposição de provedores Kotlin. |
 | Projeto desta extensão | Apenas serviço Kotlin/JVM, sem módulo de app Android | Não serve como fixture para `R`, manifest ou variantes. |
 
-A consulta de extensões via CLI foi possível, mas a CLI tentou criar logs no diretório de perfil somente leitura. A execução de `./gradlew --version` também parou ao tentar escrever o lock do wrapper no cache Gradle somente leitura. Nenhum desses comandos testou importação Android ou recursos de edição. Para repetir a prova automatizada em sandbox, usar perfil VS Code e cache Gradle graváveis sem alterar o perfil pessoal.
+As primeiras consultas no perfil pessoal encontraram restrições de escrita. A prova seguinte usou perfis e diretórios de extensões isolados em `/tmp`, sem alterar o perfil pessoal.
+
+## Primeira prova em projeto Android
+
+Em 14/10/2026, uma fixture local com `:app` Kotlin, `:fixture` Java, flavors `free` e `paid`, AGP `9.0.1`, Gradle `9.6.0` e JDK 21 compilou `assembleFreeDebug` e `assemblePaidDebug`. O serviço Gradle da extensão descobriu as variantes de ambos os módulos; a extensão ativou em um Extension Development Host do VS Code estável `1.132.0` com Kotlin oficial `0.0.13` e Java Red Hat `1.57.0` instalados em perfil isolado. A configuração de importação Android do servidor Java estava em `on`.
+
+Uma chamada à API de definição do VS Code para `R.string.test_label` no arquivo Kotlin devolveu `app/src/main/res/values/strings.xml`. O comando de diagnóstico da extensão concluiu. As chamadas de conclusão nos arquivos Kotlin e Java devolveram itens, mas a prova ainda não verificou se incluíam símbolos do Android SDK ou referências cruzadas. A chamada de definição para uma classe Java de `:fixture` usada pelo Kotlin de `:app` devolveu zero destinos. O servidor Java informou que `FixtureActivity.java` não estava no classpath de `:fixture` e só reportaria erros de sintaxe. Não houve diagnóstico Kotlin ou XML naquele instante. Esses resultados impedem marcar #23 como concluída.
+
+A próxima prova deve inspecionar a sincronização de ambos os servidores, confirmar itens de conclusão específicos do Android, repetir navegação cruzada após importação completa e executar renomeações com recompilação. Registrar o aviso de classpath com a fixture e as versões acima ao investigar se a causa está na importação Android do servidor Java, no ambiente de prova ou na configuração da extensão.
 
 ## Fixture mínima de aceitação
 
