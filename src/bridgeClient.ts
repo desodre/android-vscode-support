@@ -16,7 +16,7 @@ export interface DeviceInfo {
 interface PendingRequest {
   resolve(value: unknown): void;
   reject(error: Error): void;
-  timer: NodeJS.Timeout;
+  timer?: NodeJS.Timeout;
   removeAbort?: () => void;
 }
 
@@ -35,7 +35,7 @@ export class BridgeClient {
   private nextId = 0;
   private stdoutBuffer = '';
   private closed = false;
-  private readonly eventListeners = new Set<(name: string, data: unknown) => void>();
+  private readonly eventListeners = new Set<(name: string, data: unknown, id?: string) => void>();
   private killTimer: NodeJS.Timeout | undefined;
 
   get isClosed(): boolean { return this.closed; }
@@ -74,20 +74,21 @@ export class BridgeClient {
     }
   }
 
-  onEvent(listener: (name: string, data: unknown) => void): () => void {
+  onEvent(listener: (name: string, data: unknown, id?: string) => void): () => void {
     this.eventListeners.add(listener);
     return () => this.eventListeners.delete(listener);
   }
 
-  request<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal, device?: string, timeoutMs = 15000): Promise<T> {
+  request<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal, device?: string, timeoutMs = 15000, onRequestId?: (id: string) => void): Promise<T> {
     if (this.closed) { return Promise.reject(new Error('Serviço Kotlin encerrado.')); }
     if (signal?.aborted) { return Promise.reject(new Error('Operação cancelada.')); }
     const id = String(++this.nextId);
+    onRequestId?.(id);
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = timeoutMs > 0 ? setTimeout(() => {
         this.cancel(id);
         reject(new Error(`Tempo esgotado: ${method}.`));
-      }, timeoutMs);
+      }, timeoutMs) : undefined;
       const onAbort = () => {
         this.cancel(id);
         reject(new Error('Operação cancelada.'));
@@ -98,11 +99,24 @@ export class BridgeClient {
     });
   }
 
+  /** A long running request; stopping it cancels the Kotlin coroutine and closes its ADB connection. */
+  startStream(method: string, params: Record<string, unknown>, device: string | undefined,
+    listener: (name: string, data: unknown) => void): { stop(): void; done: Promise<void> } {
+    const controller = new AbortController();
+    let requestId: string | undefined;
+    const unsubscribe = this.onEvent((name, data, id) => {
+      if (id === requestId) { listener(name, data); }
+    });
+    const done = this.request<void>(method, params, controller.signal, device, 0, id => { requestId = id; })
+      .finally(unsubscribe);
+    return { stop: () => { unsubscribe(); controller.abort(); }, done };
+  }
+
   private cancel(id: string): void {
     const pending = this.pending.get(id);
     if (!pending) { return; }
     this.pending.delete(id);
-    clearTimeout(pending.timer);
+    if (pending.timer) { clearTimeout(pending.timer); }
     pending.removeAbort?.();
     this.send({ version: PROTOCOL_VERSION, type: 'cancel', id });
   }
@@ -136,14 +150,14 @@ export class BridgeClient {
   private receive(message: WireMessage): void {
     if (message.version !== PROTOCOL_VERSION) { throw new Error('Versão do protocolo incompatível.'); }
     if (message.type === 'event' && message.event) {
-      for (const listener of this.eventListeners) { listener(message.event, message.result); }
+      for (const listener of this.eventListeners) { listener(message.event, message.result, message.id); }
       return;
     }
     if (message.type !== 'response' || !message.id) { throw new Error('Mensagem do serviço Kotlin desconhecida.'); }
     const pending = this.pending.get(message.id);
     if (!pending) { return; }
     this.pending.delete(message.id);
-    clearTimeout(pending.timer);
+    if (pending.timer) { clearTimeout(pending.timer); }
     pending.removeAbort?.();
     if (message.error) {
       pending.reject(new Error(`${message.error.code ?? 'ERROR'}: ${message.error.message ?? 'Falha desconhecida.'}`));
@@ -157,7 +171,7 @@ export class BridgeClient {
     this.closed = true;
     this.log(error.message);
     for (const pending of this.pending.values()) {
-      clearTimeout(pending.timer);
+      if (pending.timer) { clearTimeout(pending.timer); }
       pending.removeAbort?.();
       pending.reject(error);
     }

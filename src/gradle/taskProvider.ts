@@ -112,7 +112,7 @@ export function registerGradleTaskProvider(
     provideTasks: async () => {
       if (!vscode.workspace.isTrusted) { return []; }
       const selection = await getSelection(false);
-      const actions: GradleAction[] = selection?.runnable === false ? ['assemble', 'clean'] : ['assemble', 'bundle', 'install', 'clean'];
+      const actions: GradleAction[] = selection?.runnable === false ? ['assemble', 'clean'] : ['assemble', 'bundle', 'clean'];
       return selection ? actions.map(action =>
         createGradleTask(selection, action, diagnostics, onBuilt)) : [];
     },
@@ -121,8 +121,8 @@ export function registerGradleTaskProvider(
       const selection = await getSelection(true);
       const definition = task.definition as AndroidTaskDefinition;
       if (!selection || selection.rootPath !== definition.rootPath || selection.modulePath !== definition.module ||
-          selection.variant !== definition.variant || !['assemble', 'bundle', 'install', 'clean'].includes(definition.action) ||
-          (selection.runnable === false && (definition.action === 'bundle' || definition.action === 'install'))) {
+          selection.variant !== definition.variant || !['assemble', 'bundle', 'clean'].includes(definition.action) ||
+          (selection.runnable === false && definition.action === 'bundle')) {
         return undefined;
       }
       return createGradleTask(selection, definition.action, diagnostics, onBuilt);
