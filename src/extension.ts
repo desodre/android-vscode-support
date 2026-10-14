@@ -1,14 +1,19 @@
 import * as vscode from 'vscode';
+import { resolve } from 'node:path';
 import { apkCandidates, applicationIdToStop, installApk, launchApp, launcherActivities, stopApp } from './appRunner';
 import { BridgeClient, DeviceInfo } from './bridgeClient';
 import { createVscodeDeviceSelectionUi, DeviceSelectionStore } from './deviceSelection';
 import { listAvds, startAvd } from './emulator';
 import { formatEnvironment, inspectEnvironment } from './environment';
 import { BuiltArtifact, findBuiltArtifacts } from './gradle/artifacts';
+import { BuildDiagnosticCoordinator, buildTargetKey } from './gradle/diagnosticCoordinator';
+import { BuildIssue } from './gradle/diagnostics';
 import { createGradleTask, registerGradleTaskProvider } from './gradle/taskProvider';
 import { GradleAction, GradleSelection, toGradleSelection } from './gradle/runner';
 import { discoverAndroidWorkspace } from './projectDiscovery';
 import { createVscodeSelectionUi, SelectionStore } from './selection';
+import { classifySourceFile, resolveSourceSets } from './sourceSets';
+import { registerAndroidXmlResourceSupport } from './xmlResources';
 
 let bridge: Promise<BridgeClient> | undefined;
 let output: vscode.OutputChannel | undefined;
@@ -16,6 +21,7 @@ let extensionPath: string;
 let selection: SelectionStore;
 let lastArtifacts: BuiltArtifact[] = [];
 let refreshInFlight: Promise<void> | undefined;
+let syncBuildDiagnostics: (() => void) | undefined;
 let deviceSelection: DeviceSelectionStore;
 let deviceTracking: ReturnType<BridgeClient['startStream']> | undefined;
 let logcatStream: ReturnType<BridgeClient['startStream']> | undefined;
@@ -121,6 +127,7 @@ async function performRefreshProjects(): Promise<void> {
     try {
       const catalog = await discoverAndroidWorkspace(await getBridge(), folders, controller.signal);
       const invalidated = await selection.refresh(catalog);
+      syncBuildDiagnostics?.();
       for (const failure of catalog.failures) { output?.appendLine(`Falha ao descobrir ${failure.root}: ${failure.message}`); }
       if (invalidated.length) { output?.appendLine(`Seleção Android atualizada: ${invalidated.join(', ')}.`); }
       if (catalog.modules.length === 0) {
@@ -133,7 +140,7 @@ async function performRefreshProjects(): Promise<void> {
   });
 }
 
-async function runSelectedTask(action: GradleAction, diagnostics: vscode.DiagnosticCollection): Promise<void> {
+async function runSelectedTask(action: GradleAction, diagnostics: BuildDiagnosticCoordinator): Promise<void> {
   if (!vscode.workspace.isTrusted) { throw new Error('Confie na pasta de trabalho antes de executar o Gradle.'); }
   await refreshProjects();
   if (!selectedGradleTarget()) { await selection.pickModule(createVscodeSelectionUi()); }
@@ -180,7 +187,7 @@ async function executeAndWait(task: vscode.Task): Promise<void> {
   });
 }
 
-async function buildAndInstall(target: GradleSelection, serial: string, diagnostics: vscode.DiagnosticCollection): Promise<string | undefined> {
+async function buildAndInstall(target: GradleSelection, serial: string, diagnostics: BuildDiagnosticCoordinator): Promise<string | undefined> {
   let built: BuiltArtifact[] = [];
   const task = createGradleTask(target, 'assemble', diagnostics, artifacts => { built = artifacts; lastArtifacts = artifacts; });
   await executeAndWait(task);
@@ -320,6 +327,32 @@ async function runCommand(action: () => Promise<void>): Promise<void> {
   }
 }
 
+function createBuildDiagnostics(collection: vscode.DiagnosticCollection): BuildDiagnosticCoordinator {
+  const published = new Map<string, string>();
+  const normalizedMessage = (message: string) => message.trim().replace(/\s+/g, ' ');
+  return new BuildDiagnosticCoordinator({
+    clear: () => { published.clear(); collection.clear(); },
+    replace: (file, issues) => {
+      const uri = vscode.Uri.file(file);
+      const external = vscode.languages.getDiagnostics(uri).filter(item => item.source !== 'Android Gradle');
+      const visible = issues.filter(issue => !external.some(item =>
+        item.range.start.line === issue.line - 1 && item.range.start.character === issue.column - 1 &&
+        normalizedMessage(item.message) === normalizedMessage(issue.message)));
+      const fingerprint = JSON.stringify(visible.map(issue => [issue.line, issue.column, issue.severity, issue.message]));
+      if (published.get(uri.toString()) === fingerprint) { return; }
+      published.set(uri.toString(), fingerprint);
+      const converted = visible.map((issue: BuildIssue) => {
+        const range = new vscode.Range(issue.line - 1, issue.column - 1, issue.line - 1, issue.column);
+        const diagnostic = new vscode.Diagnostic(range, issue.message,
+          issue.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
+        diagnostic.source = 'Android Gradle';
+        return diagnostic;
+      });
+      collection.set(uri, converted);
+    },
+  });
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   extensionPath = context.extensionPath;
   output = vscode.window.createOutputChannel('Android');
@@ -330,9 +363,33 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(logcatOutput);
   const diagnostics = vscode.languages.createDiagnosticCollection('Android Gradle');
   context.subscriptions.push(diagnostics);
+  const buildDiagnostics = createBuildDiagnostics(diagnostics);
+  syncBuildDiagnostics = () => {
+    const resolved = selection.resolve();
+    const target = resolved ? toGradleSelection(resolved) : undefined;
+    const layout = resolved ? resolveSourceSets(resolved.module, resolved.variant) : undefined;
+    buildDiagnostics.selectTarget(target ? buildTargetKey(target) : undefined,
+      file => !layout || classifySourceFile(file, layout) !== 'inactive');
+  };
+  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => {
+    if (event.document.uri.scheme === 'file') { buildDiagnostics.invalidateFile(event.document.uri.fsPath); }
+  }));
+  context.subscriptions.push(vscode.languages.onDidChangeDiagnostics(event => {
+    for (const uri of event.uris) { if (uri.scheme === 'file') { buildDiagnostics.republish(uri.fsPath); } }
+  }));
+  const xmlSupport = registerAndroidXmlResourceSupport(moduleRoot => {
+    const resolved = selection.resolve();
+    return resolved && resolve(resolved.module.projectDir) === resolve(moduleRoot)
+      ? resolveSourceSets(resolved.module, resolved.variant).sourceSetNames : undefined;
+  });
+  context.subscriptions.push(xmlSupport);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   status.command = 'androidSupport.selectVariant';
-  const updateStatus = () => { status.text = `$(device-mobile) ${selection.statusText()}`; };
+  const updateStatus = () => {
+    status.text = `$(device-mobile) ${selection.statusText()}`;
+    syncBuildDiagnostics?.();
+    xmlSupport.refresh();
+  };
   updateStatus();
   status.show();
   context.subscriptions.push(status, selection.onDidChange(updateStatus));
@@ -352,7 +409,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try { await refreshProjects(); } catch (error) { output?.appendLine(String(error)); }
     }
     return selectedGradleTarget();
-  }, diagnostics, artifacts => { lastArtifacts = artifacts; }));
+  }, buildDiagnostics, artifacts => { lastArtifacts = artifacts; }));
 
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.diagnose', () => runCommand(async () => {
     const environment = await inspectEnvironment(extensionPath);
@@ -391,14 +448,14 @@ export function activate(context: vscode.ExtensionContext): void {
     const target = await selectedApplication();
     if (!target) { return; }
     const serial = await requireSelectedDevice();
-    if (serial) { await buildAndInstall(target, serial, diagnostics); }
+    if (serial) { await buildAndInstall(target, serial, buildDiagnostics); }
   })));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.run', () => runCommand(async () => {
     const target = await selectedApplication();
     if (!target) { return; }
     const serial = await chooseRunDevice();
     if (!serial) { return; }
-    const applicationId = await buildAndInstall(target, serial, diagnostics);
+    const applicationId = await buildAndInstall(target, serial, buildDiagnostics);
     if (applicationId) { await launchInstalled(applicationId, serial); }
   })));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.stop', () => runCommand(async () => {
@@ -425,11 +482,12 @@ export function activate(context: vscode.ExtensionContext): void {
     ['androidSupport.build', 'assemble'], ['androidSupport.bundle', 'bundle'],
     ['androidSupport.clean', 'clean']
   ] as const) {
-    context.subscriptions.push(vscode.commands.registerCommand(command, () => runCommand(() => runSelectedTask(action, diagnostics))));
+    context.subscriptions.push(vscode.commands.registerCommand(command, () => runCommand(() => runSelectedTask(action, buildDiagnostics))));
   }
 }
 
 export function deactivate(): void {
+  syncBuildDiagnostics = undefined;
   stopLogcat();
   deviceTracking?.stop();
   deviceTracking = undefined;
