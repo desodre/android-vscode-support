@@ -49,7 +49,7 @@ Para iniciar um AVD, o SDK precisa ter Android Emulator e Platform-Tools, e o se
 
 ## Etapa 04 em desenvolvimento: edição e recursos
 
-Ao abrir XML Android, Kotlin ou Java, a extensão oferece **Ir para Definição** para referências locais `@tipo/nome` e `R.tipo.nome`. Quando um módulo e uma variante foram selecionados, a busca considera os source sets dessa variante. A opção `androidSupport.xmlLocalResourceDiagnostics` permite avisos sobre recursos não encontrados no módulo; ela começa desativada porque recursos de dependências ainda não são indexados.
+Ao abrir XML Android, Kotlin ou Java, a extensão oferece **Ir para Definição** para referências `@tipo/nome` e `R.tipo.nome`. Quando um módulo e uma variante foram selecionados, a busca considera os source sets dessa variante e os módulos locais declarados como dependências Gradle. A opção `androidSupport.xmlLocalResourceDiagnostics` permite avisos sobre recursos não encontrados no índice; ela começa desativada porque recursos de bibliotecas externas e gerados ainda não são indexados.
 
 Os diagnósticos de build agora são descartados quando a variante muda, o arquivo é editado ou o build é cancelado. Um build antigo não substitui diagnósticos de um build mais recente; mensagens iguais de Gradle e dos servidores de linguagem são exibidas uma vez quando coincidem na localização e no texto.
 

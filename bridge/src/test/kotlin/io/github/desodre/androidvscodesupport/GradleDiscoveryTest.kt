@@ -67,6 +67,9 @@ class GradleDiscoveryTest {
                 }
                 protected abstract boolean app();
                 public void apply(Project p) {
+                    for (String configuration : new String[] {"implementation", "api", "freeImplementation", "paidImplementation"}) {
+                        p.getConfigurations().maybeCreate(configuration);
+                    }
                     List<Variant> vs = new ArrayList<>();
                     for (String bt : new String[] {"debug", "release"}) {
                         if (app()) {
@@ -89,7 +92,7 @@ class GradleDiscoveryTest {
         val dir = fixture()
         fakeAgp(dir)
         write(dir, "settings.gradle", "rootProject.name = 'sample'\ninclude ':app', ':lib', ':plain'")
-        write(dir, "app/build.gradle", "plugins { id 'com.android.application' }")
+        write(dir, "app/build.gradle", "plugins { id 'com.android.application' }\ndependencies { implementation project(':lib') }")
         write(dir, "lib/build.gradle", "plugins { id 'com.android.library' }")
         write(dir, "plain/build.gradle", "")
 
@@ -109,6 +112,7 @@ class GradleDiscoveryTest {
         val flavor = free["flavors"]!!.jsonArray.single().jsonObject
         assertEquals("tier", flavor["dimension"]!!.jsonPrimitive.content)
         assertEquals("free", flavor["name"]!!.jsonPrimitive.content)
+        assertEquals(listOf(":lib"), free["projectDependencies"]!!.jsonArray.map { it.jsonPrimitive.content })
 
         val lib = byPath[":lib"]!!["android"]!!.jsonObject
         assertEquals("library", lib["type"]!!.jsonPrimitive.content)

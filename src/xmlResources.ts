@@ -19,6 +19,13 @@ export interface ResourceDefinition {
 
 export interface XmlResourceSupport extends vscode.Disposable { refresh(): void }
 
+/** A direct Android library dependency identified by the Gradle project model. */
+export interface ResourceModuleDependency {
+  root: string;
+  /** Selected variant's source sets; defaults to main when variant metadata is unavailable. */
+  sourceSetNames?: readonly string[];
+}
+
 /** Finds references while preserving source offsets and ignoring XML comments/CDATA. */
 export function xmlReferences(source: string): ResourceReference[] {
   const visible = source.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>/g, match => ' '.repeat(match.length));
@@ -72,15 +79,16 @@ function indexValuesXml(index: Map<string, ResourceDefinition[]>, file: string, 
   }
 }
 
-/** Indexes resource definitions across all source sets of one module, including qualified res directories. */
+/** Indexes a module and explicitly resolved local libraries, including qualified res directories. */
 export function indexModuleResources(
-  moduleRoot: string, overlay?: { file: string; source: string }, sourceSetNames?: readonly string[]
+  moduleRoot: string, overlay?: { file: string; source: string }, sourceSetNames?: readonly string[],
+  dependencies: readonly ResourceModuleDependency[] = []
 ): Map<string, ResourceDefinition[]> {
   const index = new Map<string, ResourceDefinition[]>();
   const readSource = (file: string): string => overlay?.file === file ? overlay.source : fs.readFileSync(file, 'utf8');
   const sources = path.join(moduleRoot, 'src');
   let sourceSets: fs.Dirent[];
-  try { sourceSets = fs.readdirSync(sources, { withFileTypes: true }); } catch { return index; }
+  try { sourceSets = fs.readdirSync(sources, { withFileTypes: true }); } catch { sourceSets = []; }
   for (const sourceSet of sourceSets.filter(entry => entry.isDirectory() &&
     (!sourceSetNames || sourceSetNames.includes(entry.name))).sort((a, b) => a.name.localeCompare(b.name))) {
     const res = path.join(sources, sourceSet.name, 'res');
@@ -114,6 +122,16 @@ export function indexModuleResources(
       }
     }
   }
+  const seen = new Set([path.resolve(moduleRoot)]);
+  for (const dependency of dependencies) {
+    const root = path.resolve(dependency.root);
+    if (seen.has(root)) { continue; }
+    seen.add(root);
+    const names = dependency.sourceSetNames ?? ['main'];
+    for (const definitions of indexModuleResources(root, undefined, names).values()) {
+      for (const definition of definitions) { add(index, definition); }
+    }
+  }
   return index;
 }
 
@@ -143,7 +161,8 @@ function xmlDocument(document: vscode.TextDocument): boolean {
 
 /** Registers go-to-definition and missing-resource diagnostics for Android XML documents. */
 export function registerAndroidXmlResourceSupport(
-  getSourceSets?: (moduleRoot: string) => readonly string[] | undefined
+  getSourceSets?: (moduleRoot: string) => readonly string[] | undefined,
+  getDependencyModules?: (moduleRoot: string) => readonly ResourceModuleDependency[]
 ): XmlResourceSupport {
   // Keep the indexer usable in plain Node tests; VS Code is loaded only on activation.
   const vscode: typeof import('vscode') = require('vscode');
@@ -155,11 +174,12 @@ export function registerAndroidXmlResourceSupport(
     const enabled = vscode.workspace.getConfiguration('androidSupport').get<boolean>('xmlLocalResourceDiagnostics', false);
     if (!enabled) { diagnostics.delete(document.uri); return; }
     const missing = unresolvedXmlReferences(document.getText(),
-      indexModuleResources(root, { file: document.uri.fsPath, source: document.getText() }, getSourceSets?.(root)));
+      indexModuleResources(root, { file: document.uri.fsPath, source: document.getText() },
+        getSourceSets?.(root), getDependencyModules?.(root)));
     diagnostics.set(document.uri, missing.map(reference => {
       const range = new vscode.Range(document.positionAt(reference.start), document.positionAt(reference.end));
       const diagnostic = new vscode.Diagnostic(range,
-        `Recurso não encontrado neste módulo: @${reference.type}/${reference.name} (pode vir de dependência)`,
+        `Recurso não encontrado no índice local: @${reference.type}/${reference.name} (pode vir de biblioteca externa ou geração)`,
         vscode.DiagnosticSeverity.Warning);
       diagnostic.code = 'android-resource-missing';
       return diagnostic;
@@ -171,7 +191,7 @@ export function registerAndroidXmlResourceSupport(
     const root = androidModuleRoot(document.uri.fsPath);
     if (!root) { return []; }
     const definitions = indexModuleResources(root, { file: document.uri.fsPath, source: document.getText() },
-      getSourceSets?.(root)).get(`${reference.type}/${reference.name}`);
+      getSourceSets?.(root), getDependencyModules?.(root)).get(`${reference.type}/${reference.name}`);
     if (!definitions?.length) { return []; }
     return definitions.flatMap(definition => {
       const target = vscode.Uri.file(definition.file);

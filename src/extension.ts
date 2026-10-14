@@ -13,6 +13,7 @@ import { GradleAction, GradleSelection, toGradleSelection } from './gradle/runne
 import { discoverAndroidWorkspace } from './projectDiscovery';
 import { createVscodeSelectionUi, SelectionStore } from './selection';
 import { classifySourceFile, resolveSourceSets } from './sourceSets';
+import { resourceDependencyModules } from './resourceDependencies';
 import { registerAndroidXmlResourceSupport } from './xmlResources';
 
 let bridge: Promise<BridgeClient> | undefined;
@@ -377,10 +378,24 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.languages.onDidChangeDiagnostics(event => {
     for (const uri of event.uris) { if (uri.scheme === 'file') { buildDiagnostics.republish(uri.fsPath); } }
   }));
-  const xmlSupport = registerAndroidXmlResourceSupport(moduleRoot => {
+  const resourceContext = (moduleRoot: string) => {
+    const owner = selection.modules.find(module => resolve(module.projectDir) === resolve(moduleRoot));
+    if (!owner) { return undefined; }
     const resolved = selection.resolve();
-    return resolved && resolve(resolved.module.projectDir) === resolve(moduleRoot)
-      ? resolveSourceSets(resolved.module, resolved.variant).sourceSetNames : undefined;
+    const compatible = resolved ? owner.variants.filter(candidate =>
+      candidate.buildType === resolved.variant.buildType && candidate.flavors.every(flavor =>
+        resolved.variant.flavors.some(selected => selected.dimension === flavor.dimension && selected.name === flavor.name))) : [];
+    const variant = resolved?.module === owner ? resolved.variant
+      : compatible.length === 1 ? compatible[0]
+        : owner.variants.length === 1 ? owner.variants[0] : undefined;
+    return { owner, variant };
+  };
+  const xmlSupport = registerAndroidXmlResourceSupport(moduleRoot => {
+    const context = resourceContext(moduleRoot);
+    return context?.variant ? resolveSourceSets(context.owner, context.variant).sourceSetNames : ['main'];
+  }, moduleRoot => {
+    const context = resourceContext(moduleRoot);
+    return context?.variant ? resourceDependencyModules(selection.modules, context.owner, context.variant) : [];
   });
   context.subscriptions.push(xmlSupport);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);

@@ -87,3 +87,36 @@ test('filtra recursos de outros flavors quando a variante está selecionada', t 
   assert.ok(free.has('string/free_only'));
   assert.equal(free.has('string/paid_only'), false);
 });
+
+test('inclui apenas recursos de dependências locais explicitamente resolvidas', t => {
+  const project = fixture(t);
+  const app = join(project.root, 'app');
+  const library = join(project.root, 'library');
+  const shared = project.write('library/src/main/res/values/strings.xml', '<resources><string name="shared">Library</string></resources>');
+  project.write('unrelated/src/main/res/values/strings.xml', '<resources><string name="unrelated">Other</string></resources>');
+  const index = indexModuleResources(app, undefined, undefined, [{ root: library }]);
+  assert.equal(index.get('string/shared')?.[0].file, shared);
+  assert.equal(index.has('string/unrelated'), false);
+  assert.deepEqual(unresolvedXmlReferences('@string/shared', index), []);
+  assert.equal(unresolvedXmlReferences('@string/unrelated', index).length, 1);
+  assert.equal(indexModuleResources(app).has('string/shared'), false);
+});
+
+test('filtra source sets da biblioteca pela variante e evita duplicar o módulo', t => {
+  const project = fixture(t);
+  const app = join(project.root, 'app');
+  const library = join(project.root, 'library');
+  project.write('library/src/main/res/values/strings.xml', '<resources><string name="common">Main</string></resources>');
+  project.write('library/src/free/res/values/strings.xml', '<resources><string name="free_only">Free</string></resources>');
+  project.write('library/src/paid/res/values/strings.xml', '<resources><string name="paid_only">Paid</string></resources>');
+  const mainOnly = indexModuleResources(app, undefined, undefined, [{ root: library }]);
+  assert.ok(mainOnly.has('string/common'));
+  assert.equal(mainOnly.has('string/free_only'), false);
+  const free = indexModuleResources(app, undefined, undefined, [
+    { root: library, sourceSetNames: ['main', 'free'] },
+    { root: library, sourceSetNames: ['main', 'free'] }
+  ]);
+  assert.ok(free.has('string/free_only'));
+  assert.equal(free.has('string/paid_only'), false);
+  assert.equal(free.get('string/common')?.length, 1);
+});
