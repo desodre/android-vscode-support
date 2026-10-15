@@ -66,6 +66,7 @@
       "properties": {
         "androidSupport.javaHome": { "type": "string", "default": "", "description": "Caminho do JDK 17+ usado pelo serviço Kotlin. Vazio usa JAVA_HOME ou java no PATH." },
         "androidSupport.sdkPath": { "type": "string", "default": "", "description": "Caminho do Android SDK. Vazio usa ANDROID_HOME, ANDROID_SDK_ROOT ou o caminho padrão." },
+        "androidSupport.emulatorPath": { "type": "string", "default": "", "description": "Caminho absoluto do executável Android Emulator. Vazio usa o emulador do SDK detectado." },
         "androidSupport.bridgeLibDirectory": { "type": "string", "default": "", "description": "Diretório lib da distribuição Kotlin. Vazio usa o serviço incluído na extensão." },
         "androidSupport.adbHost": { "type": "string", "default": "127.0.0.1", "description": "Endereço do servidor ADB." },
         "androidSupport.adbPort": { "type": "number", "default": 5037, "minimum": 1, "maximum": 65535, "description": "Porta do servidor ADB." },

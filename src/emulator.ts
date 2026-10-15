@@ -1,20 +1,23 @@
-import { spawn, execFile } from 'node:child_process';
+import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const FIRST_CONSOLE_PORT = 5554;
 const LAST_CONSOLE_PORT = 5682;
 
-function emulatorBinary(sdk: string): string {
-  return join(sdk, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator');
+function emulatorBinary(sdk: string, override?: string): string {
+  if (override && !isAbsolute(override)) {
+    throw new Error('androidSupport.emulatorPath deve ser um caminho absoluto para o executável do emulador.');
+  }
+  return override || join(sdk, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator');
 }
 
-export async function listAvds(sdk: string, signal?: AbortSignal): Promise<string[]> {
-  const binary = emulatorBinary(sdk);
+export async function listAvds(sdk: string, signal?: AbortSignal, emulatorPath?: string): Promise<string[]> {
+  const binary = emulatorBinary(sdk, emulatorPath);
   if (!existsSync(binary)) { throw new Error(`Emulador não encontrado em ${binary}. Instale o pacote Android Emulator no SDK.`); }
   const { stdout } = await execFileAsync(binary, ['-list-avds'], { signal, timeout: 10_000, windowsHide: true, maxBuffer: 1024 * 1024 });
   return stdout.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
@@ -66,17 +69,26 @@ export async function startAvd(
   name: string,
   activeSerials: readonly string[],
   signal?: AbortSignal,
+  emulatorPath?: string,
+  timing: { bootTimeoutMs?: number; pollIntervalMs?: number } = {},
 ): Promise<string> {
-  const available = await listAvds(sdk, signal);
+  const available = await listAvds(sdk, signal, emulatorPath);
   if (!available.includes(name)) { throw new Error(`AVD não encontrado: ${name}.`); }
   const port = await chooseEmulatorPort(activeSerials);
   const serial = `emulator-${port}`;
   const logDirectory = mkdtempSync(join(tmpdir(), 'android-vscode-emulator-'));
   const logFile = join(logDirectory, 'stderr.log');
   const logFd = openSync(logFile, 'w');
-  const child = spawn(emulatorBinary(sdk), ['-avd', name, '-port', String(port)], {
-    detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', logFd], windowsHide: true,
-  });
+  let child: ChildProcess;
+  try {
+    child = spawn(emulatorBinary(sdk, emulatorPath), ['-avd', name, '-port', String(port)], {
+      detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', logFd], windowsHide: true,
+    });
+  } catch (error) {
+    closeSync(logFd);
+    rmSync(logDirectory, { recursive: true, force: true });
+    throw error;
+  }
   closeSync(logFd);
   let exited: string | undefined;
   child.once('error', error => { exited = error.message; });
@@ -90,20 +102,34 @@ export async function startAvd(
     try {
       if (process.platform === 'win32') { child.kill(force ? 'SIGKILL' : 'SIGTERM'); }
       else { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); }
-    } catch { child.kill(); }
+    } catch { if (!exited) { child.kill(force ? 'SIGKILL' : 'SIGTERM'); } }
   };
-  const stop = async () => {
-    if (!child.pid || exited) { return; }
+  const groupAlive = () => {
+    if (!child.pid) { return false; }
+    if (process.platform === 'win32') { return !exited; }
+    try { process.kill(-child.pid, 0); return true; }
+    catch { return false; }
+  };
+  const stop = async (): Promise<boolean> => {
+    if (!child.pid) { return true; }
     kill(false);
-    await new Promise<void>(resolve => {
-      const timer = setTimeout(resolve, 3_000);
-      child.once('exit', () => { clearTimeout(timer); resolve(); });
-    });
-    if (!exited) { kill(true); }
+    const deadline = Date.now() + 3_000;
+    while (groupAlive() && Date.now() < deadline) { await delay(100); }
+    if (groupAlive()) {
+      kill(true);
+      const forceDeadline = Date.now() + 1_000;
+      while (groupAlive() && Date.now() < forceDeadline) { await delay(50); }
+    }
+    return !groupAlive();
   };
   try {
-    await runAdb(adb, ['start-server'], signal);
-    const deadline = Date.now() + 180_000;
+    try { await runAdb(adb, ['start-server'], signal); }
+    catch (error) {
+      if (signal?.aborted) { throw new Error('Inicialização do emulador cancelada.'); }
+      throw new Error(`Falha ao iniciar o servidor ADB: ${String(error)}`);
+    }
+    const deadline = Date.now() + (timing.bootTimeoutMs ?? 180_000);
+    let lastAdbError = '';
     while (Date.now() < deadline) {
       if (signal?.aborted) { throw new Error('Inicialização do emulador cancelada.'); }
       if (exited) { throw new Error(`Emulador encerrou (${exited}). ${logTail()}`); }
@@ -112,18 +138,29 @@ export async function startAvd(
         if (state === 'device') {
           const boot = await runAdb(adb, ['-s', serial, 'shell', 'getprop', 'sys.boot_completed'], signal);
           if (boot === '1') {
+            // A port taken after our availability check must not be mistaken for this process.
+            await delay(150, signal);
+            if (exited || !groupAlive()) {
+              throw new Error(`Emulador encerrou (${exited ?? 'processo ausente'}). ${logTail()}`);
+            }
             child.unref();
             return serial;
           }
         }
       } catch (error) {
         if (signal?.aborted) { throw error; }
+        if (error instanceof Error && error.message.startsWith('Emulador encerrou (')) { throw error; }
+        lastAdbError = String(error);
       }
-      await delay(1_000, signal);
+      await delay(timing.pollIntervalMs ?? 1_000, signal);
     }
-    throw new Error(`Tempo esgotado ao iniciar ${name}. ${logTail()}`);
+    throw new Error(`Tempo esgotado ao iniciar ${name}. ${lastAdbError} ${logTail()}`.trim());
   } catch (error) {
-    await stop();
+    const stopped = await stop();
+    if (!stopped) {
+      throw new Error(`Não foi possível encerrar o emulador iniciado em ${serial} após a falha: ${String(error)}`);
+    }
+    if (signal?.aborted) { throw new Error('Inicialização do emulador cancelada.'); }
     throw error;
   } finally {
     try { rmSync(logDirectory, { recursive: true, force: true }); }

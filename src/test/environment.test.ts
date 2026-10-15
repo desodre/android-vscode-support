@@ -94,6 +94,10 @@ test('diagnóstico aponta requisitos ausentes e reconhece um servidor ADB válid
   assert.deepEqual(ready.problems, []);
   assert.equal(ready.adbServer, true);
   assert.match(environment.formatEnvironment(ready), /Ambiente pronto/);
+  assert.equal(ready.emulator, join(sdk, 'emulator', 'emulator'));
+  settings.emulatorPath = join(root, 'other-sdk', 'emulator');
+  assert.equal((await environment.inspectEnvironment(join(root, 'extension'))).emulator, settings.emulatorPath);
+  delete settings.emulatorPath;
 
   unlinkSync(java);
   assert.match((await environment.inspectEnvironment(join(root, 'extension'))).problems.join(' '), /JDK não encontrado.*JDK 17\+/);

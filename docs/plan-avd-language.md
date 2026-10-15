@@ -1,6 +1,6 @@
 # Plano de recuperação: AVD e edição Kotlin/Java
 
-**Estado em 15/10/2026.** Complementa as etapas 3 e 4 do [plano principal](../PLANO.md). O PR #59 foi integrado à `main`; ele registra a falha de importação, mas não conclui a [#23](https://github.com/desodre/android-vscode-support/issues/23). A [#22](https://github.com/desodre/android-vscode-support/issues/22) também permanece aberta. Este documento define a ordem das provas e das correções; nenhum resultado ainda não medido é tratado como concluído.
+**Estado em 15/10/2026.** Complementa as etapas 3 e 4 do [plano principal](../PLANO.md). O PR #59 foi integrado à `main`; ele registra a falha de importação, mas não conclui a [#23](https://github.com/desodre/android-vscode-support/issues/23). O PR #61 foi encerrado sem merge. A [#22](https://github.com/desodre/android-vscode-support/issues/22) permanece aberta até a integração da nova correção à `main`.
 
 ## Resultado esperado e fronteiras
 
@@ -14,7 +14,7 @@ Os trabalhos são independentes até a prova final de execução/depuração em 
 
 | Trilha | Evidência | Lacuna |
 | --- | --- | --- |
-| AVD | O comando Executar passou em aparelho físico no PR #56. Dois AVDs e o emulador invocado diretamente encerraram com SIGSEGV/código 139. O binário local consultado nesta sessão informa versão 36.5.11. | Ainda não há um boot de AVD estável nem uma comparação controlada entre CLI e extensão. A sessão atual não expõe `/dev/kvm`; isso pode refletir o ambiente de execução e **não estabelece** a causa do SIGSEGV. |
+| AVD | O comando Executar passou em aparelho físico no PR #56. A invocação CLI com os mesmos argumentos usados pela extensão concluiu o boot; a prova no Extension Development Host concluiu boot, build, instalação, início e parada do app. Testes com executáveis falsos passaram para falha, timeout, cancelamento e disputa de porta. Uma invocação alternativa sem janela sofreu SIGSEGV, mas não faz parte do comando da extensão. | Integrar a correção à `main` e conferir os critérios da #22 após o merge. O SIGSEGV do modo alternativo pode ser investigado separadamente se houver necessidade de execução sem janela. |
 | Kotlin/Java | `:app` e `:fixture` da fixture AGP 9.0.1 compilam em `freeDebug` e `paidDebug`. Com Java Red Hat 1.57.0 e Kotlin by JetBrains 0.0.13, o Java LS lista os módulos, mas seus source paths ficam vazios; Java → SDK e Kotlin ↔ Java não retornam definições após 90 s. | A origem exata de cada falha e o estado real da importação do Kotlin LSP ainda precisam ser medidos separadamente. Itens genéricos de conclusão e ausência momentânea de diagnósticos não provam suporte semântico. |
 | XML | Navegação/validação Android específica da extensão foi integrada no PR #58; #25 está concluída. | A prova semântica Kotlin/Java da #23 continua necessária, inclusive `R` e classes geradas. |
 
