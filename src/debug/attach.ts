@@ -14,6 +14,10 @@ export interface AttachOptions {
   applicationId: string;
   adapter: 'intellij_jvm' | 'java';
   rootPath: string;
+  /** Nome do projeto importado pelo Java Language Server para o módulo Gradle selecionado. */
+  projectName?: string;
+  /** Diretórios de código da variante selecionada, usados pelo Debugger for Java. */
+  sourcePaths?: string[];
 }
 
 export type DebugConfiguration = Record<string, unknown>;
@@ -106,6 +110,10 @@ export class AndroidDebugAttacher {
       const started = await this.startDebugging({
         type: options.adapter, request: 'attach', hostName: '127.0.0.1', port: localPort,
         name: `Android: ${options.applicationId} (${options.serial}, PID ${options.pid})`,
+        ...(options.adapter === 'java' ? {
+          projectName: options.projectName,
+          sourcePaths: options.sourcePaths,
+        } : {}),
         [SESSION_KEY]: sessionId,
       }, options);
       if (!started) { await this.cleanup(sessionId); }

@@ -293,8 +293,17 @@ async function attachToApplication(target: GradleSelection, serial: string, appl
   const adapter = adapters.length === 1 ? adapters[0].value
     : (await vscode.window.showQuickPick(adapters, { placeHolder: 'Escolha o depurador para este processo' }))?.value;
   if (!adapter) { return false; }
+  const resolved = selection.resolve();
+  if (adapter === 'java' && (!resolved || resolved.module.root !== target.rootPath ||
+      resolved.module.path !== target.modulePath || resolved.variant.name !== target.variant)) {
+    throw new Error('A seleção do módulo mudou. Selecione novamente o aplicativo para depurar.');
+  }
+  const javaSources = adapter === 'java' && resolved
+    ? resolveSourceSets(resolved.module, resolved.variant).sourceRoots.filter(root => root.exists).map(root => root.path)
+    : undefined;
   const started = await debugAttacher!.attach(client, {
-    serial, pid, applicationId, adapter, rootPath: target.rootPath
+    serial, pid, applicationId, adapter, rootPath: target.rootPath,
+    ...(adapter === 'java' && resolved ? { projectName: resolved.module.name, sourcePaths: javaSources } : {}),
   });
   if (started) { output?.appendLine(`Depurador conectado a ${applicationId} em ${serial} (PID ${pid}).`); }
   return started;

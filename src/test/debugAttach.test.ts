@@ -26,11 +26,31 @@ test('creates a serial-scoped JDWP forward and removes it when its debug session
   assert.equal(await attacher.attach(bridge, options), true);
   assert.equal(configuration?.type, 'intellij_jvm');
   assert.equal(configuration?.port, 45001);
+  assert.equal(configuration?.projectName, undefined);
+  assert.equal(configuration?.sourcePaths, undefined);
   assert.deepEqual(calls, [['debug.forwardJdwp', { pid: 1234, localPort: 45001 }, 'emulator-5554']]);
   await attacher.onDidTerminate(configuration!);
   await attacher.onDidTerminate(configuration!);
   assert.deepEqual(calls[1], ['debug.removeForward', { localPort: 45001 }, 'emulator-5554']);
   assert.equal(calls.length, 2);
+});
+
+test('passes the selected Gradle module and source roots only to the Java adapter', async () => {
+  const { bridge } = fakeBridge();
+  let configuration: DebugConfiguration | undefined;
+  const attacher = new AndroidDebugAttacher(async config => {
+    configuration = config;
+    return true;
+  }, async () => 45005, async () => undefined);
+  const javaOptions: AttachOptions = {
+    ...options, adapter: 'java', projectName: 'app',
+    sourcePaths: ['/workspace/app/src/main/java', '/workspace/app/src/debug/kotlin'],
+  };
+  assert.equal(await attacher.attach(bridge, javaOptions), true);
+  assert.equal(configuration?.type, 'java');
+  assert.equal(configuration?.projectName, 'app');
+  assert.deepEqual(configuration?.sourcePaths, javaOptions.sourcePaths);
+  await attacher.dispose();
 });
 
 test('removes the forward when the adapter refuses or the JDWP probe fails', async () => {
