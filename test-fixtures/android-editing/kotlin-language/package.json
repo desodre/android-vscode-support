@@ -1,0 +1,10 @@
+{
+  "name": "android-fixture-kotlin-language",
+  "displayName": "Android Fixture Kotlin Language",
+  "publisher": "desodre",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.100.0" },
+  "contributes": {
+    "languages": [{ "id": "kotlin", "extensions": [".kt"] }]
+  }
+}
