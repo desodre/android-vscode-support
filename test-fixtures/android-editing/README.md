@@ -29,3 +29,18 @@ grep -qx PASS /tmp/android-editing-result
 ```
 
 Set `JAVA_HOME` and `ANDROID_HOME` in the shell if they are not already set. The small `kotlin-language` fixture only registers the `.kt` language ID, so this test isolates the extension's resource provider. The VS Code CLI may exit with code 0 even when a test assertion fails; check the result file. The test restores unsaved XML changes and its temporary diagnostics setting before exiting.
+
+## Kotlin/Java import probe (#23)
+
+`language-import-smoke.js` uses the real `JetBrains.kotlin-server` and `redhat.java` extensions. It records versions, Java project/source paths, Kotlin→Java and Java→Kotlin definitions, completion, and diagnostics after import. Run it with an isolated VS Code profile and both language extensions in its extensions directory. Set `java.jdt.ls.androidSupport.enabled` to `on` and `java.import.gradle.java.home` to a JDK 21 path in that profile's `User/settings.json`. The Kotlin server needs a suitable JDK on the host as described in `docs/language-support.md`. The probe only reads project files and writes a JSON report; its results are evidence, not a passing assertion for #23. Check that the JSON file was created, because the VS Code CLI can exit successfully even if an extension test fails.
+
+```sh
+ANDROID_LANGUAGE_RESULT=/tmp/android-language-result.json code --wait \
+  --extensionDevelopmentPath="$PWD" \
+  --extensionTestsPath="$PWD/test-fixtures/android-editing/language-import-smoke.js" \
+  --user-data-dir=/tmp/android-language-profile \
+  --extensions-dir=/tmp/android-language-extensions \
+  "$PWD/test-fixtures/android-editing"
+```
+
+Run from the repository root after compiling the extension and building the fixture. An empty Java source-path list or missing cross-language definition means the issue remains open, even if both Gradle variants build.
