@@ -31,7 +31,31 @@ npm run compile
 ANDROID_SERIAL=SERIAL node test-fixtures/android-debug/physical-device-smoke.js
 ```
 
-The smoke test uses one real device. Unit tests in `src/test/deviceSelection.test.ts` cover selection with two online devices, state changes, and `offline`/`unauthorized` states. AVD startup and the VS Code **Executar** command remain separate validations.
+The smoke test uses one real device. Unit tests in `src/test/deviceSelection.test.ts` cover selection with two online devices, state changes, and `offline`/`unauthorized` states. AVD startup is a separate validation.
+
+## End-to-end Executar command smoke test
+
+The fixture includes local `gradlew` launchers that reuse the repository's Gradle wrapper, so the VS Code command can build it as an independent workspace. The opt-in `physical-run-command-smoke.js` test runs the real **Android: Compilar, instalar e executar aplicativo** command in an Extension Development Host. It chooses the `:app` module and connected device, verifies the Gradle task, installation, app process, and **Parar** command, then checks that cancelling the destination starts no build and a failing build shows an error without starting the app. It force-stops the app during cleanup. The serial is only passed through the local environment.
+
+Build the extension, bridge, and fixture APK first. The VS Code test runner can exit successfully even after a test assertion, so verify the explicit result file:
+
+```sh
+npm run compile
+./gradlew :bridge:installDist -q
+./gradlew -p test-fixtures/android-debug :app:assembleDebug -q
+mkdir -p /tmp/android-run-smoke/User
+printf '%s\n' '{"security.workspace.trust.enabled":false}' > /tmp/android-run-smoke/User/settings.json
+rm -f /tmp/android-run-smoke-result
+ANDROID_SERIAL=SERIAL ANDROID_RUN_RESULT=/tmp/android-run-smoke-result code --wait \
+  --extensionDevelopmentPath="$PWD" \
+  --extensionTestsPath="$PWD/test-fixtures/android-debug/physical-run-command-smoke.js" \
+  --user-data-dir=/tmp/android-run-smoke \
+  --extensions-dir="$HOME/.vscode/extensions" \
+  "$PWD/test-fixtures/android-debug"
+grep -qx PASS /tmp/android-run-smoke-result
+```
+
+Use a new isolated VS Code profile when checking the first module and device selection. AVD execution remains separate from this physical-device proof.
 
 ## Repeatable Java DAP smoke test
 
