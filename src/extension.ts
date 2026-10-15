@@ -490,6 +490,8 @@ export function activate(context: vscode.ExtensionContext): void {
   }, moduleRoot => {
     const context = resourceContext(moduleRoot);
     return context?.variant ? resourceDependencyModules(selection.modules, context.owner, context.variant) : [];
+  }, moduleRoot => {
+    return resourceContext(moduleRoot)?.owner.namespace;
   });
   context.subscriptions.push(xmlSupport);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);

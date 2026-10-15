@@ -18,6 +18,25 @@ Open `test-fixtures/android-debug` as a VS Code workspace. Set breakpoints at `M
 
 The fixture has its own Gradle settings so it does not affect the extension build. Its debug APK and `local.properties` are generated locally and must not be committed.
 
+## Manifest navigation smoke test
+
+The opt-in `manifest-navigation-smoke.js` opens this fixture in a VS Code Extension Development Host, selects `:app`, and checks **Go to Definition** from two `AndroidManifest.xml` component names to their Kotlin classes. It requires an Android SDK and a JDK that can import the Gradle project. Check the result file because the VS Code test runner can exit successfully after an assertion failure.
+
+```sh
+npm run compile
+./gradlew :bridge:installDist -q
+mkdir -p /tmp/android-manifest-smoke/User
+printf '%s\n' '{"security.workspace.trust.enabled":false}' > /tmp/android-manifest-smoke/User/settings.json
+rm -f /tmp/android-manifest-result
+ANDROID_MANIFEST_RESULT=/tmp/android-manifest-result code --wait \
+  --extensionDevelopmentPath="$PWD" \
+  --extensionTestsPath="$PWD/test-fixtures/android-debug/manifest-navigation-smoke.js" \
+  --user-data-dir=/tmp/android-manifest-smoke \
+  --extensions-dir=/tmp/android-manifest-smoke/extensions \
+  "$PWD/test-fixtures/android-debug"
+grep -qx PASS /tmp/android-manifest-result
+```
+
 ## Physical device and Logcat smoke test
 
 The opt-in `physical-device-smoke.js` uses the production Kotlin bridge and TypeScript app helpers. It checks explicit device selection and a live `track-devices` snapshot, installs this APK, discovers and launches its Activity, stops and restarts the app, receives Logcat markers filtered by package and PID, and cancels both streams. The fixture's exported `Stage3ProbeReceiver` emits a marker only when the test sends it an explicit broadcast. The test stops the app in its cleanup block.

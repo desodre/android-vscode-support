@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type * as vscode from 'vscode';
+import { findManifestClassDefinitions, manifestClassReferenceAt } from './manifestNavigation';
 
 export interface ResourceReference {
   type: string;
@@ -162,7 +163,8 @@ function xmlDocument(document: vscode.TextDocument): boolean {
 /** Registers go-to-definition and missing-resource diagnostics for Android XML documents. */
 export function registerAndroidXmlResourceSupport(
   getSourceSets?: (moduleRoot: string) => readonly string[] | undefined,
-  getDependencyModules?: (moduleRoot: string) => readonly ResourceModuleDependency[]
+  getDependencyModules?: (moduleRoot: string) => readonly ResourceModuleDependency[],
+  getNamespace?: (moduleRoot: string) => string | null | undefined
 ): XmlResourceSupport {
   // Keep the indexer usable in plain Node tests; VS Code is loaded only on activation.
   const vscode: typeof import('vscode') = require('vscode');
@@ -207,7 +209,23 @@ export function registerAndroidXmlResourceSupport(
   const provider = vscode.languages.registerDefinitionProvider({ scheme: 'file', pattern: '**/*.xml' }, {
     provideDefinition(document, position) {
       if (!xmlDocument(document)) { return undefined; }
-      const reference = referenceAt(document.getText(), document.offsetAt(position));
+      const source = document.getText();
+      const offset = document.offsetAt(position);
+      if (path.basename(document.uri.fsPath) === 'AndroidManifest.xml') {
+        const component = manifestClassReferenceAt(source, offset);
+        const root = androidModuleRoot(document.uri.fsPath);
+        if (component && root) {
+          return findManifestClassDefinitions(root, source, component,
+            getSourceSets?.(root) ?? ['main'], getNamespace?.(root)).flatMap(definition => {
+            let contents: string;
+            try { contents = fs.readFileSync(definition.file, 'utf8'); } catch { return []; }
+            const before = contents.slice(0, definition.offset);
+            return [new vscode.Location(vscode.Uri.file(definition.file),
+              new vscode.Position(before.split('\n').length - 1, definition.offset - before.lastIndexOf('\n') - 1))];
+          });
+        }
+      }
+      const reference = referenceAt(source, offset);
       return reference ? definitionsFor(document, reference) : undefined;
     }
   });
