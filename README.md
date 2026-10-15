@@ -47,6 +47,8 @@ A leitura dos artefatos APK usa os metadados gerados pelo Android Gradle Plugin 
 
 Para iniciar um AVD, o SDK precisa ter Android Emulator e Platform-Tools, e o servidor ADB deve usar `127.0.0.1:5037`. O serviço Kotlin instala um APK por vez; APKs maiores que 512 MiB exigem outro fluxo de instalação. A localização de artefatos ainda assume o diretório `build/outputs` padrão do módulo.
 
+A [prova física repetível](test-fixtures/android-debug/README.md#physical-device-and-logcat-smoke-test) validou a seleção explícita, o acompanhamento de dispositivos, a instalação, o início e a parada do app, além dos filtros de Logcat por pacote e PID, inclusive após reinício do processo. Os streams foram cancelados ao final. A prova usou um único aparelho físico; a seleção entre dois dispositivos está coberta pelos testes unitários. O AVD e o comando completo **Executar** ainda precisam de validação.
+
 ## Etapa 04 em desenvolvimento: edição e recursos
 
 Ao abrir XML Android, Kotlin ou Java, a extensão oferece **Ir para Definição** para referências `@tipo/nome` e `R.tipo.nome`. Quando um módulo e uma variante foram selecionados, a busca considera os source sets dessa variante e os módulos locais declarados como dependências Gradle. A opção `androidSupport.xmlLocalResourceDiagnostics` permite avisos sobre recursos não encontrados no índice; ela começa desativada porque recursos de bibliotecas externas e gerados ainda não são indexados.
