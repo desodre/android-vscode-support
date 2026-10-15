@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { test } from 'node:test';
-import { AndroidDebugAttacher, AttachOptions, DebugBridge, DebugConfiguration, verifyJdwp } from '../debug/attach';
+import { AndroidDebugAttacher, AttachOptions, DebugBridge, DebugConfiguration, verifyJdwp, waitForProcess } from '../debug/attach';
 
 const options: AttachOptions = {
   serial: 'emulator-5554', pid: 1234, applicationId: 'com.example.app',
@@ -74,4 +74,18 @@ test('checks the JDWP handshake before opening the debug adapter', async () => {
   assert.ok(address && typeof address !== 'string');
   try { await verifyJdwp(address.port); }
   finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('waits for the selected package on the selected serial and accepts only valid PIDs', async () => {
+  const calls: Array<[string, string | undefined]> = [];
+  let polls = 0;
+  const bridge: DebugBridge = { async request<T>(
+    method: string, _params?: Record<string, unknown>, _signal?: AbortSignal, serial?: string,
+  ): Promise<T> {
+    calls.push([method, serial]);
+    polls++;
+    return { pids: polls === 1 ? [] : [4321, 4321, -1] } as T;
+  } };
+  assert.deepEqual(await waitForProcess(bridge, 'device-a', 'com.example.app', undefined, 1000, 1), [4321]);
+  assert.deepEqual(calls, [['debug.findProcess', 'device-a'], ['debug.findProcess', 'device-a']]);
 });

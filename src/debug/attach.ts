@@ -57,6 +57,29 @@ export function verifyJdwp(port: number, timeoutMs = 5000): Promise<void> {
   });
 }
 
+/** Waits for a freshly launched package to acquire a PID before attaching. */
+export async function waitForProcess(
+  bridge: DebugBridge, serial: string, applicationId: string, signal?: AbortSignal,
+  timeoutMs = 30_000, pollMs = 500,
+): Promise<number[]> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    if (signal?.aborted) { throw new Error('Espera pelo processo Android cancelada.'); }
+    const response = await bridge.request<{ pids: number[] }>(
+      'debug.findProcess', { packageName: applicationId }, signal, serial,
+    );
+    const pids = [...new Set(response.pids)].filter(pid => Number.isSafeInteger(pid) && pid > 0);
+    if (pids.length > 0) { return pids; }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) { throw new Error(`Tempo esgotado aguardando ${applicationId} iniciar em ${serial}.`); }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { signal?.removeEventListener('abort', cancel); resolve(); }, Math.min(pollMs, remaining));
+      const cancel = () => { clearTimeout(timer); reject(new Error('Espera pelo processo Android cancelada.')); };
+      signal?.addEventListener('abort', cancel, { once: true });
+    });
+  }
+}
+
 interface Forward { bridge: DebugBridge; serial: string; localPort: number }
 
 /** Owns only forwards created for Android debug sessions started by this extension. */

@@ -15,7 +15,9 @@ O adaptador Kotlin e a importação Android ainda são [experimentais nas notas 
 3. A ponte Kotlin cria `tcp:<porta-local> → jdwp:<pid>` no serial selecionado com `noRebind`. A extensão confirma o handshake JDWP antes de iniciar o adaptador.
 4. A extensão inicia `vscode.debug.startDebugging` com o adaptador instalado. Ao terminar a sessão, falhar a conexão ou desativar a extensão, remove apenas o forward que ela criou. A ponte verifica se o destino do mapeamento ainda é o mesmo PID antes da remoção.
 
-`pidof` fornece candidatos pelo nome principal do pacote; ainda não lista todos os processos depuráveis. A [descoberta JDWP da biblioteca](https://github.com/desodre/adb-utils-gradle-package/issues/16) permanece necessária para processos secundários, mudanças de PID e reconexão. O comando atual também não compila, instala ou inicia o aplicativo aguardando o depurador; essas etapas pertencem às próximas tarefas da etapa 5.
+O comando **Android: Compilar, instalar e depurar aplicativo** acrescenta build e instalação, reinicia o pacote com `am set-debug-app -w`, aguarda o novo PID e então executa o attach. O início não usa `am start -W`, pois a Activity pode estar aguardando o depurador. A configuração transitória de espera é limpa após iniciar o attach; em caso de falha ou cancelamento, a extensão também encerra o processo. A [documentação oficial do ADB](https://developer.android.com/tools/adb) descreve `set-debug-app -w` e `clear-debug-app`.
+
+`pidof` fornece candidatos pelo nome principal do pacote; ainda não lista todos os processos depuráveis. A [descoberta JDWP da biblioteca](https://github.com/desodre/adb-utils-gradle-package/issues/16) permanece necessária para processos secundários, mudanças de PID e reconexão. A configuração de espera e a retomada do processo após attach ainda exigem prova em aparelho e emulador.
 
 ## Prova necessária
 

@@ -59,14 +59,17 @@ internal object DeviceActions {
         return buildJsonArray { parseLauncherActivities(result.stdout, name).forEach { add(JsonPrimitive(it)) } }
     }
 
-    suspend fun launch(client: AdbClient, serial: String?, packageName: String?, component: String?): JsonElement {
+    suspend fun launch(
+        client: AdbClient, serial: String?, packageName: String?, component: String?, waitForDebugger: Boolean = false,
+    ): JsonElement {
         val name = requirePackageName(packageName)
         val target = component ?: throw IllegalArgumentException("Atividade inicial obrigatória.")
         require(target.startsWith("$name/") && activityNamePattern.matches(target.substringAfter('/'))) {
             "Atividade inicial inválida para $name."
         }
+        val command = if (waitForDebugger) "am start" else "am start -W"
         val result = client.device(requireSerial(serial)).shellV2(
-            "am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $target"
+            "$command -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $target"
         )
         val output = (result.stdout + result.stderr).trim()
         require(result.exitCode == 0 && !output.lineSequence().any { it.trimStart().startsWith("Error:") }) {

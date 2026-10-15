@@ -156,6 +156,7 @@ private suspend fun handle(method: String, params: JsonObject, serial: String?, 
     "app.launchers" -> DeviceActions.launchers(client, serial, params["applicationId"]?.jsonPrimitive?.contentOrNull)
     "app.launch" -> DeviceActions.launch(
         client, serial, params["applicationId"]?.jsonPrimitive?.contentOrNull, params["component"]?.jsonPrimitive?.contentOrNull,
+        params["waitForDebugger"]?.jsonPrimitive?.contentOrNull == "true",
     )
     "app.stop" -> DeviceActions.stop(client, serial, params["applicationId"]?.jsonPrimitive?.contentOrNull)
     "debug.findProcess" -> DebugActions.findProcess(client, serial, params["packageName"]?.jsonPrimitive?.contentOrNull)
@@ -165,6 +166,12 @@ private suspend fun handle(method: String, params: JsonObject, serial: String?, 
     )
     "debug.removeForward" -> DebugActions.removeForward(
         client, serial, params["localPort"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+    )
+    "debug.setWaitForDebugger" -> DebugLaunchActions.setWaitForDebugger(
+        client, serial, params["packageName"]?.jsonPrimitive?.contentOrNull,
+    )
+    "debug.clearWaitForDebugger" -> DebugLaunchActions.clearWaitForDebugger(
+        client, serial, params["packageName"]?.jsonPrimitive?.contentOrNull,
     )
     "gradle.discoverProjects" -> GradleDiscovery.discover(
         java.io.File(params["projectDir"]?.jsonPrimitive?.contentOrNull ?: throw IllegalArgumentException("projectDir obrigatório.")),
