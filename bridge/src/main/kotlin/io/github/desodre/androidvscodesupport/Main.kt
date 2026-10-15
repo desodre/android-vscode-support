@@ -158,6 +158,14 @@ private suspend fun handle(method: String, params: JsonObject, serial: String?, 
         client, serial, params["applicationId"]?.jsonPrimitive?.contentOrNull, params["component"]?.jsonPrimitive?.contentOrNull,
     )
     "app.stop" -> DeviceActions.stop(client, serial, params["applicationId"]?.jsonPrimitive?.contentOrNull)
+    "debug.findProcess" -> DebugActions.findProcess(client, serial, params["packageName"]?.jsonPrimitive?.contentOrNull)
+    "debug.forwardJdwp" -> DebugActions.forwardJdwp(
+        client, serial, params["pid"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+        params["localPort"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+    )
+    "debug.removeForward" -> DebugActions.removeForward(
+        client, serial, params["localPort"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+    )
     "gradle.discoverProjects" -> GradleDiscovery.discover(
         java.io.File(params["projectDir"]?.jsonPrimitive?.contentOrNull ?: throw IllegalArgumentException("projectDir obrigatório.")),
         params["gradleUserHome"]?.jsonPrimitive?.contentOrNull?.let(::File),

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { apkCandidates, applicationIdToStop, installApk, launchApp, launcherActivities, stopApp } from './appRunner';
 import { BridgeClient, DeviceInfo } from './bridgeClient';
 import { createVscodeDeviceSelectionUi, DeviceSelectionStore } from './deviceSelection';
+import { AndroidDebugAttacher, AttachOptions } from './debug/attach';
 import { listAvds, startAvd } from './emulator';
 import { formatEnvironment, inspectEnvironment } from './environment';
 import { BuiltArtifact, findBuiltArtifacts } from './gradle/artifacts';
@@ -28,6 +29,7 @@ let deviceTracking: ReturnType<BridgeClient['startStream']> | undefined;
 let logcatStream: ReturnType<BridgeClient['startStream']> | undefined;
 let logcatOutput: vscode.OutputChannel | undefined;
 let activeLogcatSerial: string | undefined;
+let debugAttacher: AndroidDebugAttacher | undefined;
 const installedApplicationIds = new Map<string, string>();
 
 function installedKey(target: GradleSelection, serial: string): string {
@@ -269,6 +271,40 @@ async function launchInstalled(applicationId: string, serial: string): Promise<v
   output?.appendLine(`Executando ${applicationId} em ${serial}: ${component}.`);
 }
 
+async function attachDebugger(): Promise<void> {
+  const target = await selectedApplication();
+  if (!target) { return; }
+  const serial = await requireSelectedDevice();
+  if (!serial) { return; }
+  const applicationId = installedApplicationIds.get(installedKey(target, serial)) ?? target.applicationId;
+  if (!applicationId) { throw new Error('O applicationId da variante não foi encontrado. Compile e instale o aplicativo primeiro.'); }
+  const client = await getBridge();
+  const processes = await client.request<{ pids: number[] }>('debug.findProcess', { packageName: applicationId }, undefined, serial);
+  const pids = [...new Set(processes.pids)].filter(pid => Number.isSafeInteger(pid) && pid > 0);
+  if (pids.length === 0) { throw new Error(`O aplicativo ${applicationId} não está em execução em ${serial}.`); }
+  const pid = pids.length === 1 ? pids[0] : (await vscode.window.showQuickPick(pids.map(value => ({
+    label: `PID ${value}`, value
+  })), { placeHolder: `Selecione o processo de ${applicationId}` }))?.value;
+  if (!pid) { return; }
+  const adapters: Array<{ label: string; value: AttachOptions['adapter'] }> = [];
+  if (vscode.extensions.getExtension('JetBrains.kotlin-server')) {
+    adapters.push({ label: 'Kotlin e Java (JetBrains)', value: 'intellij_jvm' });
+  }
+  if (vscode.extensions.getExtension('vscjava.vscode-java-debug')) {
+    adapters.push({ label: 'Java (Debugger for Java)', value: 'java' });
+  }
+  if (adapters.length === 0) {
+    throw new Error('Instale “Kotlin by JetBrains” ou “Debugger for Java” para conectar ao processo Android.');
+  }
+  const adapter = adapters.length === 1 ? adapters[0].value
+    : (await vscode.window.showQuickPick(adapters, { placeHolder: 'Escolha o depurador para este processo' }))?.value;
+  if (!adapter) { return; }
+  const started = await debugAttacher!.attach(client, {
+    serial, pid, applicationId, adapter, rootPath: target.rootPath
+  });
+  if (started) { output?.appendLine(`Depurador conectado a ${applicationId} em ${serial} (PID ${pid}).`); }
+}
+
 function ensureDeviceTracking(client: BridgeClient): void {
   if (deviceTracking) { return; }
   const tracking = client.startStream('devices.track', {}, undefined, (event, data) => {
@@ -358,6 +394,14 @@ export function activate(context: vscode.ExtensionContext): void {
   extensionPath = context.extensionPath;
   output = vscode.window.createOutputChannel('Android');
   context.subscriptions.push(output);
+  debugAttacher = new AndroidDebugAttacher((configuration, options) => {
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(options.rootPath));
+    return Promise.resolve(vscode.debug.startDebugging(folder, configuration as vscode.DebugConfiguration));
+  });
+  context.subscriptions.push(vscode.debug.onDidTerminateDebugSession(session => {
+    void debugAttacher?.onDidTerminate(session.configuration).catch(error =>
+      output?.appendLine(`Falha ao remover forward JDWP: ${String(error)}`));
+  }));
   selection = new SelectionStore(context.workspaceState);
   deviceSelection = new DeviceSelectionStore(context.workspaceState);
   logcatOutput = vscode.window.createOutputChannel('Android Logcat');
@@ -455,6 +499,7 @@ export function activate(context: vscode.ExtensionContext): void {
   })));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.logcat', () => runCommand(startLogcat)));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.stopLogcat', stopLogcat));
+  context.subscriptions.push(vscode.commands.registerCommand('androidSupport.attachDebugger', () => runCommand(attachDebugger)));
 
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.startAvd', () => runCommand(async () => {
     await startChosenAvd();
@@ -501,11 +546,13 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   syncBuildDiagnostics = undefined;
   stopLogcat();
   deviceTracking?.stop();
   deviceTracking = undefined;
-  void bridge?.then(client => client.dispose(), () => undefined);
+  await debugAttacher?.dispose().catch(error => output?.appendLine(`Falha ao remover forward JDWP: ${String(error)}`));
+  debugAttacher = undefined;
+  await bridge?.then(client => client.dispose(), () => undefined);
   bridge = undefined;
 }
