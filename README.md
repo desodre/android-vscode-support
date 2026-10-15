@@ -54,3 +54,9 @@ Ao abrir XML Android, Kotlin ou Java, a extensão oferece **Ir para Definição*
 Os diagnósticos de build agora são descartados quando a variante muda, o arquivo é editado ou o build é cancelado. Um build antigo não substitui diagnósticos de um build mais recente; mensagens iguais de Gradle e dos servidores de linguagem são exibidas uma vez quando coincidem na localização e no texto.
 
 Para conclusão, navegação e refatoração gerais de Kotlin/Java, a estratégia é usar as extensões Kotlin by JetBrains e Language Support for Java by Red Hat. Consulte a [prova e matriz de aceitação](docs/language-support.md). O suporte Android desses servidores ainda precisa ser validado em um projeto misto com flavors antes de concluir a etapa.
+
+## Etapa 05 em desenvolvimento: depuração
+
+**Android: Conectar depurador ao aplicativo em execução** usa o dispositivo selecionado, procura o PID do pacote e cria um encaminhamento JDWP por meio de `adb-utils:0.3.0`. Escolha Kotlin by JetBrains ou Debugger for Java quando ambos estiverem instalados. A extensão verifica o handshake antes do attach e remove o encaminhamento ao terminar a sessão. O aplicativo deve estar instalado, em execução e ser depurável. Consulte a [decisão e matriz de validação](docs/debugging.md); breakpoints Kotlin/Java em aparelho e emulador ainda precisam de prova.
+
+**Android: Compilar, instalar e depurar aplicativo** compila a variante selecionada, instala o APK no dispositivo escolhido, reinicia o pacote aguardando o depurador e conecta ao novo PID. Se a conexão for cancelada ou falhar, encerra o processo e limpa a configuração de espera. Esse fluxo ainda precisa ser validado em dispositivo e emulador.

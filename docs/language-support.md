@@ -33,6 +33,10 @@ Uma chamada à API de definição do VS Code para `R.string.test_label` no arqui
 
 Uma segunda execução com perfil novo observou o mesmo aviso de classpath e zero destinos para Kotlin → Java após 30 e 90 segundos. O comando `java.project.getAll` listou `:app` e `:fixture`, mas `java.project.listSourcePaths` para o arquivo Java devolveu lista vazia nas duas medições. Portanto, esperar mais pela sincronização não resolveu a ausência de source paths no modelo do servidor Java. O problema foi reproduzido sem modificar o perfil pessoal do VS Code.
 
+Investigação posterior: o script de importação Android incluído no JDT LS da extensão Red Hat `1.57.0` encerra a configuração quando `android.bootClasspath` não fornece `android.jar`. A fixture com AGP `9.0.1` não expôs essa propriedade; o `.classpath` gerado continha apenas o JRE e o contêiner Gradle, sem `src/main/java`. Uma cópia temporária do script com fallback para o `android.jar` do SDK fez aparecer o diretório fonte no `.classpath` e removeu o aviso, confirmando a causa imediata. Ela também produziu erros de classes Java padrão e não restaurou a navegação Kotlin → Java, portanto não é uma configuração pronta para usuários.
+
+Também foi testada `JetBrains.intellij-server@0.0.13` em perfil isolado, com opções de região e compartilhamento de dados definidas. Após 120 segundos, a navegação Kotlin → Java e Java → Kotlin continuou sem destinos. Como o servidor não deixou logs nessa prova, ela não confirma que o backend inicializou; é preciso resolver a ativação antes de julgar sua compatibilidade Android.
+
 A próxima prova deve inspecionar a sincronização de ambos os servidores, confirmar itens de conclusão específicos do Android, repetir navegação cruzada após importação completa e executar renomeações com recompilação. Registrar o aviso de classpath com a fixture e as versões acima ao investigar se a causa está na importação Android do servidor Java, no ambiente de prova ou na configuração da extensão.
 
 ## Fixture mínima de aceitação

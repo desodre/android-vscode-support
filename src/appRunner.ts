@@ -65,11 +65,13 @@ export async function launcherActivities(
 
 export async function launchApp(
   bridge: DeviceActionBridge, serial: string, applicationId: string, component: string, signal?: AbortSignal,
+  waitForDebugger = false,
 ): Promise<void> {
   if (!PACKAGE_NAME.test(applicationId) || !component.startsWith(`${applicationId}/`)) {
     throw new Error('Atividade inicial inválida para o aplicativo selecionado.');
   }
-  await bridge.request('app.launch', { applicationId, component }, signal, requireSerial(serial));
+  await bridge.request('app.launch', waitForDebugger
+    ? { applicationId, component, waitForDebugger: true } : { applicationId, component }, signal, requireSerial(serial));
 }
 
 export async function stopApp(

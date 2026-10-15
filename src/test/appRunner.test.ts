@@ -37,11 +37,14 @@ test('instala, consulta launcher, inicia e para sempre no serial explícito', as
   const appId = await installApk(bridge, 'emulator-5554', apk, selection);
   const components = await launcherActivities(bridge, 'emulator-5554', appId);
   await launchApp(bridge, 'emulator-5554', appId, components[0]);
+  await launchApp(bridge, 'emulator-5554', appId, components[0], undefined, true);
   await stopApp(bridge, 'emulator-5554', appId);
   assert.deepEqual(calls.map(call => [call[0], call[2]]), [
     ['app.install', 'emulator-5554'], ['app.launchers', 'emulator-5554'],
-    ['app.launch', 'emulator-5554'], ['app.stop', 'emulator-5554'],
+    ['app.launch', 'emulator-5554'], ['app.launch', 'emulator-5554'], ['app.stop', 'emulator-5554'],
   ]);
+  assert.deepEqual(calls[2][1], { applicationId: appId, component: components[0] });
+  assert.deepEqual(calls[3][1], { applicationId: appId, component: components[0], waitForDebugger: true });
 });
 
 test('recusa instalar variante errada ou operação sem serial', async () => {
