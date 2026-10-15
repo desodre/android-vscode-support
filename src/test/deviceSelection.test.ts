@@ -59,6 +59,7 @@ test('offline and unauthorized devices cannot be selected', async () => {
 test('selected device becomes invalid when state changes', async () => {
   const selection = new DeviceSelectionStore(memory());
   await selection.updateDevices([device('usb-1', 'device'), device('usb-2', 'device')]);
+  assert.equal(selection.selectedSerial, undefined);
   await selection.select('usb-1');
   await selection.updateDevices([device('usb-1', 'offline'), device('usb-2', 'device')]);
   assert.equal(selection.selectedSerial, undefined);

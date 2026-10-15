@@ -18,6 +18,21 @@ Open `test-fixtures/android-debug` as a VS Code workspace. Set breakpoints at `M
 
 The fixture has its own Gradle settings so it does not affect the extension build. Its debug APK and `local.properties` are generated locally and must not be committed.
 
+## Physical device and Logcat smoke test
+
+The opt-in `physical-device-smoke.js` uses the production Kotlin bridge and TypeScript app helpers. It checks explicit device selection and a live `track-devices` snapshot, installs this APK, discovers and launches its Activity, stops and restarts the app, receives Logcat markers filtered by package and PID, and cancels both streams. The fixture's exported `Stage3ProbeReceiver` emits a marker only when the test sends it an explicit broadcast. The test stops the app in its cleanup block.
+
+Build the extension, bridge, and APK, start the ADB server, and set `ANDROID_SERIAL` to an authorized physical device:
+
+```sh
+npm run compile
+./gradlew :bridge:installDist -q
+./gradlew -p test-fixtures/android-debug :app:assembleDebug -q
+ANDROID_SERIAL=SERIAL node test-fixtures/android-debug/physical-device-smoke.js
+```
+
+The smoke test uses one real device. Unit tests in `src/test/deviceSelection.test.ts` cover selection with two online devices, state changes, and `offline`/`unauthorized` states. AVD startup and the VS Code **Executar** command remain separate validations.
+
 ## Repeatable Java DAP smoke test
 
 The opt-in `physical-dap-smoke.js` test installs and starts this fixture on `ANDROID_SERIAL`, verifies a Java breakpoint, stack, variable, expression and step in VS Code, then removes its JDWP forward and stops the app. Build the extension (`npm run compile`), Kotlin bridge (`./gradlew :bridge:installDist`) and APK first. Install **Debugger for Java** in the VS Code extensions directory used for the run.
