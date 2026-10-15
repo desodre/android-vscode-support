@@ -36,6 +36,8 @@ O objetivo é cobrir as capacidades úteis do Android Studio de forma incrementa
 
 ### 3. Dispositivos, instalação e execução
 
+**Plano de recuperação e validação pendente:** [AVD e edição Kotlin/Java](docs/plan-avd-language.md), entregas A1–A2.
+
 **Implementar:** listar e acompanhar dispositivos com `adb-utils`, selecionar serial explicitamente, distinguir `device`, `offline` e `unauthorized`; instalar o artefato correto; iniciar e parar o app; abrir `logcat` filtrável pelo processo; iniciar um AVD já configurado. Usar o `adb` do SDK para iniciar o servidor, pois a biblioteca não o inicia.
 
 **Concluída quando:** o comando **Executar** compila, instala e inicia um app em um dispositivo ou emulador selecionado, com logs visíveis e limpeza correta após erro ou cancelamento.
@@ -43,6 +45,8 @@ O objetivo é cobrir as capacidades úteis do Android Studio de forma incrementa
 **Marco:** primeiro fluxo Android utilizável no VS Code.
 
 ### 4. Edição Kotlin, Java e recursos Android
+
+**Plano de recuperação e validação pendente:** [AVD e edição Kotlin/Java](docs/plan-avd-language.md), entregas B1–B3.
 
 **Implementar:** validar Kotlin LSP e suporte Java com projetos Android de referência; completar, navegar e refatorar código Kotlin/Java; reconhecer classes geradas, recursos `R`, manifest e source sets da variante; acrescentar validação e navegação para XML, manifest e referências a recursos. Evitar diagnósticos duplicados entre servidores de linguagem e build.
 
