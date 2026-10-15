@@ -76,6 +76,25 @@ grep -qx PASS /tmp/android-run-smoke-result
 
 Use a new isolated VS Code profile when checking the first module and device selection. AVD execution remains separate from this physical-device proof.
 
+## Prova do comando Executar em AVD (#22)
+
+`avd-run-command-smoke.js` seleciona um AVD existente pelo comando do VS Code, aguarda o boot, compila, instala, inicia e para o app. Ele encerra somente o emulador novo identificado durante a prova. Execute no host com um perfil VS Code isolado; não execute em sandbox que bloqueie sockets, ADB ou KVM. No Linux, a prova exige pelo menos 8 GiB de memória disponível e nenhum emulador já ativo antes de começar. Esse limite pode ser ajustado por `ANDROID_AVD_MIN_AVAILABLE_MB` conforme a capacidade do host. A prova permanece opcional até o ambiente conseguir sustentar simultaneamente emulador, VS Code e Gradle.
+
+Prepare a extensão, a ponte e o APK como nas seções anteriores. Configure `androidSupport.sdkPath` e, se precisar de outro binário comprovadamente funcional, `androidSupport.emulatorPath` no `User/settings.json` do perfil isolado. Mantenha `ANDROID_HOME` e `ANDROID_SDK_ROOT` apontando para o mesmo SDK usado pelo Gradle; variáveis conflitantes fazem o build falhar. Em seguida:
+
+```sh
+rm -f /tmp/android-avd-result
+ANDROID_AVD_NAME=AVD_EXISTENTE ANDROID_AVD_RESULT=/tmp/android-avd-result \
+  code --wait --extensionDevelopmentPath="$PWD" \
+  --extensionTestsPath="$PWD/test-fixtures/android-debug/avd-run-command-smoke.js" \
+  --user-data-dir=/tmp/android-avd-smoke \
+  --extensions-dir="$HOME/.vscode/extensions" \
+  "$PWD/test-fixtures/android-debug"
+grep -qx PASS /tmp/android-avd-result
+```
+
+O teste não grava nomes de dispositivos físicos no resultado. A issue #22 só deve ser fechada após esta prova passar e os casos de falha/cancelamento da inicialização também serem validados.
+
 ## Repeatable Java DAP smoke test
 
 The opt-in `physical-dap-smoke.js` test installs and starts this fixture on `ANDROID_SERIAL`, verifies a Java breakpoint, stack, variable, expression and step in VS Code, then removes its JDWP forward and stops the app. Build the extension (`npm run compile`), Kotlin bridge (`./gradlew :bridge:installDist`) and APK first. Install **Debugger for Java** in the VS Code extensions directory used for the run.

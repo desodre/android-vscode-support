@@ -2,19 +2,22 @@ import { spawn, execFile } from 'node:child_process';
 import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 const FIRST_CONSOLE_PORT = 5554;
 const LAST_CONSOLE_PORT = 5682;
 
-function emulatorBinary(sdk: string): string {
-  return join(sdk, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator');
+function emulatorBinary(sdk: string, override?: string): string {
+  if (override && !isAbsolute(override)) {
+    throw new Error('androidSupport.emulatorPath deve ser um caminho absoluto para o executável do emulador.');
+  }
+  return override || join(sdk, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator');
 }
 
-export async function listAvds(sdk: string, signal?: AbortSignal): Promise<string[]> {
-  const binary = emulatorBinary(sdk);
+export async function listAvds(sdk: string, signal?: AbortSignal, emulatorPath?: string): Promise<string[]> {
+  const binary = emulatorBinary(sdk, emulatorPath);
   if (!existsSync(binary)) { throw new Error(`Emulador não encontrado em ${binary}. Instale o pacote Android Emulator no SDK.`); }
   const { stdout } = await execFileAsync(binary, ['-list-avds'], { signal, timeout: 10_000, windowsHide: true, maxBuffer: 1024 * 1024 });
   return stdout.split(/\r?\n/).map(name => name.trim()).filter(Boolean);
@@ -66,15 +69,16 @@ export async function startAvd(
   name: string,
   activeSerials: readonly string[],
   signal?: AbortSignal,
+  emulatorPath?: string,
 ): Promise<string> {
-  const available = await listAvds(sdk, signal);
+  const available = await listAvds(sdk, signal, emulatorPath);
   if (!available.includes(name)) { throw new Error(`AVD não encontrado: ${name}.`); }
   const port = await chooseEmulatorPort(activeSerials);
   const serial = `emulator-${port}`;
   const logDirectory = mkdtempSync(join(tmpdir(), 'android-vscode-emulator-'));
   const logFile = join(logDirectory, 'stderr.log');
   const logFd = openSync(logFile, 'w');
-  const child = spawn(emulatorBinary(sdk), ['-avd', name, '-port', String(port)], {
+  const child = spawn(emulatorBinary(sdk, emulatorPath), ['-avd', name, '-port', String(port)], {
     detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', logFd], windowsHide: true,
   });
   closeSync(logFd);

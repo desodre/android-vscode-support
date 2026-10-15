@@ -10,6 +10,7 @@ export interface Environment {
   javaVersion: number | undefined;
   sdk: string | undefined;
   adb: string | undefined;
+  emulator: string | undefined;
   wrapper: string | undefined;
   bridgeLib: string | undefined;
   adbServer: boolean;
@@ -101,6 +102,9 @@ export async function inspectEnvironment(extensionPath: string): Promise<Environ
   const adbName = process.platform === 'win32' ? 'adb.exe' : 'adb';
   const adbInSdk = sdk ? join(sdk, 'platform-tools', adbName) : undefined;
   const adb = adbInSdk && existsSync(adbInSdk) ? adbInSdk : executableOnPath('adb');
+  const configuredEmulator = config.get<string>('emulatorPath')?.trim();
+  const emulator = configuredEmulator || (sdk
+    ? join(sdk, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator') : undefined);
   const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const wrapperName = process.platform === 'win32' ? 'gradlew.bat' : 'gradlew';
   const wrapperPath = workspace ? join(workspace, wrapperName) : undefined;
@@ -123,7 +127,7 @@ export async function inspectEnvironment(extensionPath: string): Promise<Environ
   if (!wrapper) { problems.push('Wrapper Gradle não encontrado na pasta aberta. Abra a raiz do projeto Android que contém gradlew.'); }
   if (!bridgeReady) { problems.push('Serviço Kotlin não compilado. Na raiz da extensão, execute npm run build:bridge.'); }
   if (!adbServer) { problems.push(`Servidor ADB indisponível ou inválido em ${host}:${port}. Verifique androidSupport.adbHost/androidSupport.adbPort; para um servidor local, execute adb start-server.`); }
-  return { java, javaVersion, sdk, adb, wrapper, bridgeLib: bridgeReady ? bridgeLib : undefined, adbServer, problems };
+  return { java, javaVersion, sdk, adb, emulator, wrapper, bridgeLib: bridgeReady ? bridgeLib : undefined, adbServer, problems };
 }
 
 export function formatEnvironment(environment: Environment): string {
@@ -133,6 +137,7 @@ export function formatEnvironment(environment: Environment): string {
     `JDK: ${label(environment.java)}${environment.javaVersion ? ` (versão ${environment.javaVersion})` : ''}`,
     `Android SDK: ${label(environment.sdk)}`,
     `adb: ${label(environment.adb)}`,
+    `Emulador: ${label(environment.emulator)}`,
     `Wrapper Gradle: ${label(environment.wrapper)}`,
     `Serviço Kotlin: ${label(environment.bridgeLib)}`,
     `Servidor ADB: ${environment.adbServer ? 'disponível' : 'indisponível'}`,

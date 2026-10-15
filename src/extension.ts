@@ -230,7 +230,8 @@ async function startChosenAvd(): Promise<string | undefined> {
   }
   const environment = await inspectEnvironment(extensionPath);
   if (!environment.sdk || !environment.adb) { throw new Error('Android SDK ou adb ausente. Execute “Android: Diagnosticar ambiente”.'); }
-  const avds = await listAvds(environment.sdk);
+  const emulatorPath = environment.emulator;
+  const avds = await listAvds(environment.sdk, undefined, emulatorPath);
   if (avds.length === 0) { throw new Error('Nenhum AVD existente foi encontrado no Android SDK.'); }
   const name = await vscode.window.showQuickPick(avds, { placeHolder: 'Selecione o AVD que deseja iniciar' });
   if (!name) { return undefined; }
@@ -243,7 +244,7 @@ async function startChosenAvd(): Promise<string | undefined> {
     const subscription = token.onCancellationRequested(() => controller.abort());
     try {
       return await startAvd(environment.sdk!, environment.adb!, name, devices.map(device => device.serial),
-        controller.signal);
+        controller.signal, emulatorPath);
     } finally { subscription.dispose(); }
   });
   await selectDeviceSerial(serial);

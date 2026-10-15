@@ -15,6 +15,12 @@ test('lista AVDs existentes e rejeita nome inexistente antes de iniciar', async 
   chmodSync(binary, 0o755);
   assert.deepEqual(await listAvds(sdk), ['Pixel_8', 'Pixel_9']);
   await assert.rejects(startAvd(sdk, '/missing/adb', 'Unknown', []), /AVD não encontrado/);
+  const alternate = join(sdk, 'alternate-emulator');
+  writeFileSync(alternate, '#!/bin/sh\nprintf "Fallback_AVD\\n"\n');
+  chmodSync(alternate, 0o755);
+  assert.deepEqual(await listAvds(sdk, undefined, alternate), ['Fallback_AVD']);
+  await assert.rejects(startAvd(sdk, '/missing/adb', 'Pixel_8', [], undefined, alternate), /AVD não encontrado/);
+  await assert.rejects(listAvds(sdk, undefined, 'relative/emulator'), /caminho absoluto/);
 });
 
 test('reserva par de portas par e evita serial de emulador ativo', async () => {

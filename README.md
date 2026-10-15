@@ -23,7 +23,7 @@ npm run compile
 
 Abra este repositório no VS Code e pressione **F5** para abrir a janela de desenvolvimento. A tarefa de lançamento compila a extensão e o serviço. Na Paleta de Comandos, execute **Android: Diagnosticar ambiente**. Os comandos de ADB funcionam mesmo sem um projeto Android aberto; o diagnóstico do wrapper Gradle exige abrir a raiz de um projeto Android que contenha `gradlew`.
 
-As configurações `androidSupport.javaHome`, `androidSupport.sdkPath` e `androidSupport.bridgeLibDirectory` substituem a descoberta automática. `androidSupport.adbHost` e `androidSupport.adbPort` apontam para o servidor ADB; o padrão é `127.0.0.1:5037`.
+As configurações `androidSupport.javaHome`, `androidSupport.sdkPath` e `androidSupport.bridgeLibDirectory` substituem a descoberta automática. `androidSupport.emulatorPath` permite escolher o executável de uma instalação diferente do SDK usado para compilar, quando uma versão do emulador apresenta falha no host; o caminho deve ser absoluto. `androidSupport.adbHost` e `androidSupport.adbPort` apontam para o servidor ADB; o padrão é `127.0.0.1:5037`.
 
 ```sh
 npm test
