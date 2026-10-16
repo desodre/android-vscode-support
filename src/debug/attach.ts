@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createConnection, createServer } from 'node:net';
+import { sleep } from '../util/abort';
 
 const HANDSHAKE = Buffer.from('JDWP-Handshake', 'ascii');
 const SESSION_KEY = '__androidSupportDebugSession';
@@ -76,11 +77,7 @@ export async function waitForProcess(
     if (pids.length > 0) { return pids; }
     const remaining = deadline - Date.now();
     if (remaining <= 0) { throw new Error(`Tempo esgotado aguardando ${applicationId} iniciar em ${serial}.`); }
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => { signal?.removeEventListener('abort', cancel); resolve(); }, Math.min(pollMs, remaining));
-      const cancel = () => { clearTimeout(timer); reject(new Error('Espera pelo processo Android cancelada.')); };
-      signal?.addEventListener('abort', cancel, { once: true });
-    });
+    await sleep(Math.min(pollMs, remaining), signal, 'Espera pelo processo Android cancelada.');
   }
 }
 

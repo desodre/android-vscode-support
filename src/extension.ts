@@ -15,6 +15,7 @@ import { discoverAndroidWorkspace } from './projectDiscovery';
 import { createVscodeSelectionUi, SelectionStore } from './selection';
 import { classifySourceFile, resolveSourceSets } from './sourceSets';
 import { resourceDependencyModules } from './resourceDependencies';
+import { requireTrust, withCancellableProgress } from './ui/vscodeHelpers';
 import { registerAndroidXmlResourceSupport } from './xmlResources';
 
 let bridge: Promise<BridgeClient> | undefined;
@@ -121,30 +122,24 @@ function refreshProjects(): Promise<void> {
 }
 
 async function performRefreshProjects(): Promise<void> {
-  if (!vscode.workspace.isTrusted) { throw new Error('Confie na pasta de trabalho antes de consultar o Gradle.'); }
+  requireTrust('consultar o Gradle');
   const folders = vscode.workspace.workspaceFolders?.map(folder => folder.uri.fsPath) ?? [];
   if (folders.length === 0) { throw new Error('Abra uma pasta com um projeto Android Gradle.'); }
-  await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Android: descobrindo módulos e variantes', cancellable: true }, async (_progress, token) => {
-    const controller = new AbortController();
-    const subscription = token.onCancellationRequested(() => controller.abort());
-    try {
-      const catalog = await discoverAndroidWorkspace(await getBridge(), folders, controller.signal);
-      const invalidated = await selection.refresh(catalog);
-      syncBuildDiagnostics?.();
-      for (const failure of catalog.failures) { output?.appendLine(`Falha ao descobrir ${failure.root}: ${failure.message}`); }
-      if (invalidated.length) { output?.appendLine(`Seleção Android atualizada: ${invalidated.join(', ')}.`); }
-      if (catalog.modules.length === 0) {
-        const cause = catalog.failures.length ? ` ${catalog.failures[0].message}` : '';
-        throw new Error(`Nenhum módulo Android encontrado.${cause}`);
-      }
-    } finally {
-      subscription.dispose();
+  await withCancellableProgress('Android: descobrindo módulos e variantes', async signal => {
+    const catalog = await discoverAndroidWorkspace(await getBridge(), folders, signal);
+    const invalidated = await selection.refresh(catalog);
+    syncBuildDiagnostics?.();
+    for (const failure of catalog.failures) { output?.appendLine(`Falha ao descobrir ${failure.root}: ${failure.message}`); }
+    if (invalidated.length) { output?.appendLine(`Seleção Android atualizada: ${invalidated.join(', ')}.`); }
+    if (catalog.modules.length === 0) {
+      const cause = catalog.failures.length ? ` ${catalog.failures[0].message}` : '';
+      throw new Error(`Nenhum módulo Android encontrado.${cause}`);
     }
   });
 }
 
 async function runSelectedTask(action: GradleAction, diagnostics: BuildDiagnosticCoordinator): Promise<void> {
-  if (!vscode.workspace.isTrusted) { throw new Error('Confie na pasta de trabalho antes de executar o Gradle.'); }
+  requireTrust('executar o Gradle');
   await refreshProjects();
   if (!selectedGradleTarget()) { await selection.pickModule(createVscodeSelectionUi()); }
   const target = selectedGradleTarget();
@@ -161,7 +156,7 @@ async function runSelectedTask(action: GradleAction, diagnostics: BuildDiagnosti
 }
 
 async function selectedApplication(): Promise<GradleSelection | undefined> {
-  if (!vscode.workspace.isTrusted) { throw new Error('Confie na pasta de trabalho antes de compilar ou instalar um aplicativo.'); }
+  requireTrust('compilar ou instalar um aplicativo');
   await refreshProjects();
   if (!selectedGradleTarget()) { await selection.pickModule(createVscodeSelectionUi()); }
   const target = selectedGradleTarget();
@@ -208,21 +203,15 @@ async function buildAndInstall(target: GradleSelection, serial: string, diagnost
     artifact = chosen.artifact;
   }
   const client = await getBridge();
-  const applicationId = await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Notification, title: `Android: instalando ${artifact.file.split(/[\\/]/).pop()} em ${serial}`, cancellable: true,
-  }, async (_progress, token) => {
-    const controller = new AbortController();
-    const subscription = token.onCancellationRequested(() => controller.abort());
-    try { return await installApk(client, serial, artifact, target, controller.signal); }
-    finally { subscription.dispose(); }
-  });
+  const applicationId = await withCancellableProgress(`Android: instalando ${artifact.file.split(/[\\/]/).pop()} em ${serial}`,
+    signal => installApk(client, serial, artifact, target, signal));
   installedApplicationIds.set(installedKey(target, serial), applicationId);
   output?.appendLine(`Instalado ${applicationId} em ${serial}.`);
   return applicationId;
 }
 
 async function startChosenAvd(): Promise<string | undefined> {
-  if (!vscode.workspace.isTrusted) { throw new Error('Confie na pasta de trabalho antes de iniciar um emulador.'); }
+  requireTrust('iniciar um emulador');
   const config = vscode.workspace.getConfiguration('androidSupport');
   if ((config.get<string>('adbHost') || '127.0.0.1') !== '127.0.0.1' ||
       (config.get<number>('adbPort') || 5037) !== 5037) {
@@ -238,16 +227,8 @@ async function startChosenAvd(): Promise<string | undefined> {
   if (!name) { return undefined; }
   const client = await getBridge();
   const devices = await client.request<DeviceInfo[]>('devices.list');
-  const serial = await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Notification, title: `Android: iniciando ${name}`, cancellable: true,
-  }, async (_progress, token) => {
-    const controller = new AbortController();
-    const subscription = token.onCancellationRequested(() => controller.abort());
-    try {
-      return await startAvd(environment.sdk!, environment.adb!, name, devices.map(device => device.serial),
-        controller.signal, emulatorPath);
-    } finally { subscription.dispose(); }
-  });
+  const serial = await withCancellableProgress(`Android: iniciando ${name}`, signal =>
+    startAvd(environment.sdk!, environment.adb!, name, devices.map(device => device.serial), signal, emulatorPath));
   await selectDeviceSerial(serial);
   output?.appendLine(`AVD ${name} pronto: ${serial}.`);
   return serial;
@@ -338,15 +319,8 @@ async function debugSelected(diagnostics: BuildDiagnosticCoordinator): Promise<v
   try {
     await stopApp(client, serial, applicationId);
     if (!await launchInstalled(applicationId, serial, true)) { return; }
-    await vscode.window.withProgress({
-      location: vscode.ProgressLocation.Notification, title: `Android: aguardando ${applicationId} iniciar em ${serial}`,
-      cancellable: true,
-    }, async (_progress, token) => {
-      const controller = new AbortController();
-      const subscription = token.onCancellationRequested(() => controller.abort());
-      try { await waitForProcess(client, serial, applicationId, controller.signal); }
-      finally { subscription.dispose(); }
-    });
+    await withCancellableProgress(`Android: aguardando ${applicationId} iniciar em ${serial}`,
+      signal => waitForProcess(client, serial, applicationId, signal));
     attached = await attachToApplication(target, serial, applicationId, client);
   } finally {
     try {

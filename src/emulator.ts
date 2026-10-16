@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
+import { sleep } from './util/abort';
 
 const execFileAsync = promisify(execFile);
 const FIRST_CONSOLE_PORT = 5554;
@@ -44,16 +45,7 @@ export async function chooseEmulatorPort(
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) { return Promise.reject(new Error('Inicialização do emulador cancelada.')); }
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, ms);
-    const abort = () => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', abort);
-      reject(new Error('Inicialização do emulador cancelada.'));
-    };
-    signal?.addEventListener('abort', abort, { once: true });
-  });
+  return sleep(ms, signal, 'Inicialização do emulador cancelada.');
 }
 
 async function runAdb(adb: string, args: string[], signal?: AbortSignal): Promise<string> {
