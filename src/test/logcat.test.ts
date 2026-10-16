@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { BridgeStream } from '../bridgeManager';
-import { formatLogcatEvent, logcatFilter, LogcatSession, LogcatSink } from '../logcat';
+import { formatLogcatEvent, logcatFilter, logcatLevel, LogcatOnRun, LogcatSession, LogcatSink, shouldOpenLogcatOnRun } from '../logcat';
 
 test('monta parâmetros de filtro e rejeita valores inválidos', () => {
   assert.deepEqual(logcatFilter('all'), { label: 'Todos os processos', params: {} });
@@ -25,11 +25,14 @@ test('formata os eventos do stream de logcat', () => {
 
 interface FakeStream { stopped: boolean; end(error?: Error): void; emit(event: string, data: unknown): void }
 
-function harness() {
+function harness(hint?: string) {
   const lines: string[] = [];
   const failures: string[] = [];
   const streams: FakeStream[] = [];
-  const sink: LogcatSink = { clear: () => { lines.length = 0; }, appendLine: line => lines.push(line), show: () => undefined };
+  const sink: LogcatSink = {
+    clear: () => { lines.length = 0; }, appendLine: line => lines.push(line),
+    entry: (level, line) => lines.push(`[${level}] ${line}`), show: () => undefined, hint: () => hint,
+  };
   const session = new LogcatSession(async (_params, _serial, listener) => {
     let end!: (error?: Error) => void;
     const done = new Promise<void>((resolve, reject) => { end = error => error ? reject(error) : resolve(); });
@@ -50,7 +53,7 @@ test('nova sessão substitui a anterior sem reportar o cancelamento da antiga', 
   assert.equal(streams[0].stopped, true);
   streams[1].emit('logcat.entry', { rawLine: 'nova' });
   await tick();
-  assert.deepEqual(lines, ['Logcat: serial-b · Todos os processos', 'nova']);
+  assert.deepEqual(lines, ['Logcat: serial-b · Todos os processos', '[info] nova']);
   assert.deepEqual(failures, []);
   assert.equal(session.activeSerial, 'serial-b');
 });
@@ -72,4 +75,44 @@ test('troca de dispositivo encerra a sessão; o mesmo dispositivo a mantém', as
   session.stopIfSerialChanged(undefined);
   assert.equal(streams[0].stopped, true);
   assert.equal(session.activeSerial, undefined);
+});
+
+test('mapeia a prioridade do adb-utils para o nível do canal', () => {
+  assert.equal(logcatLevel('verbose'), 'trace');
+  assert.equal(logcatLevel('DEBUG'), 'debug');
+  assert.equal(logcatLevel('info'), 'info');
+  assert.equal(logcatLevel('warn'), 'warn');
+  assert.equal(logcatLevel('W'), 'warn');
+  assert.equal(logcatLevel('error'), 'error');
+  assert.equal(logcatLevel('fatal'), 'error');
+  assert.equal(logcatLevel('assert'), 'error');
+  assert.equal(logcatLevel(null), 'info');
+  assert.equal(logcatLevel('silent'), 'info');
+  assert.equal(logcatLevel(3), 'info');
+});
+
+test('entradas usam o nível da prioridade; a dica aparece após o cabeçalho', async () => {
+  const { session, lines, streams } = harness('Nível do canal: Info.');
+  await session.start('serial-a', logcatFilter('package', 'com.example.app'));
+  streams[0].emit('logcat.started', { processIds: [10] });
+  streams[0].emit('logcat.entry', { rawLine: 'E/Tag: falhou', priority: 'error' });
+  streams[0].emit('logcat.entry', { rawLine: 'V/Tag: detalhe', priority: 'verbose' });
+  assert.deepEqual(lines, [
+    'Logcat: serial-a · Aplicativo (ID do pacote)', 'Nível do canal: Info.', 'PIDs filtrados: 10',
+    '[error] E/Tag: falhou', '[trace] V/Tag: detalhe',
+  ]);
+});
+
+test('logcatOnRun decide, pergunta e lembra a resposta', async () => {
+  const remembered: LogcatOnRun[] = [];
+  const remember = async (value: LogcatOnRun) => { remembered.push(value); };
+  const never = async () => { throw new Error('não deveria perguntar'); };
+  assert.equal(await shouldOpenLogcatOnRun('always', never, remember), true);
+  assert.equal(await shouldOpenLogcatOnRun('never', never, remember), false);
+  assert.equal(await shouldOpenLogcatOnRun('ask', async () => 'open', remember), true);
+  assert.equal(await shouldOpenLogcatOnRun(undefined, async () => undefined, remember), false);
+  assert.deepEqual(remembered, []);
+  assert.equal(await shouldOpenLogcatOnRun('ask', async () => 'always', remember), true);
+  assert.equal(await shouldOpenLogcatOnRun('ask', async () => 'never', remember), false);
+  assert.deepEqual(remembered, ['always', 'never']);
 });

@@ -6,7 +6,7 @@ import { BridgeManager } from './bridgeManager';
 import { createVscodeDeviceSelectionUi, DeviceSelectionStore } from './deviceSelection';
 import { AndroidDebugAttacher } from './debug/attach';
 import { listAvds, startAvd } from './emulator';
-import { LogcatSession, pickLogcatFilter } from './logcat';
+import { logcatFilter, LogcatSession, pickLogcatFilter, shouldOpenLogcatOnRun } from './logcat';
 import { formatEnvironment, inspectEnvironment } from './environment';
 import { BuiltArtifact } from './gradle/artifacts';
 import { BuildDiagnosticCoordinator, buildTargetKey, dedupedDiagnosticPublisher } from './gradle/diagnosticCoordinator';
@@ -51,8 +51,27 @@ async function refreshDevices(): Promise<void> {
 async function startLogcat(): Promise<void> {
   const serial = await requireSelectedDevice();
   if (!serial) { return; }
-  const filter = await pickLogcatFilter();
+  const target = selectedGradleTarget();
+  const selectedApp = target ? appFlows.installedApplicationId(target, serial) ?? target.applicationId : undefined;
+  const filter = await pickLogcatFilter(selectedApp ?? undefined);
   if (filter) { await logcat?.start(serial, filter); }
+}
+
+/** After Run/Debug, follows the app's log on the same device, as configured by androidSupport.logcatOnRun. */
+async function offerAppLogcat(serial: string, applicationId: string): Promise<void> {
+  const config = vscode.workspace.getConfiguration('androidSupport');
+  const open = await shouldOpenLogcatOnRun(config.get('logcatOnRun'), async () => {
+    const answer = await vscode.window.showInformationMessage(`Abrir o Logcat de ${applicationId}?`,
+      'Abrir', 'Sempre abrir', 'Nunca abrir');
+    return answer === 'Abrir' ? 'open' : answer === 'Sempre abrir' ? 'always' : answer === 'Nunca abrir' ? 'never' : undefined;
+  }, value => Promise.resolve(config.update('logcatOnRun', value, vscode.ConfigurationTarget.Global)));
+  if (open) { await logcat?.start(serial, logcatFilter('package', applicationId)); }
+}
+
+function followAppLogcat(serial: string, applicationId: string): void {
+  void offerAppLogcat(serial, applicationId).catch(error => {
+    output?.appendLine(`Falha ao abrir o Logcat: ${error instanceof Error ? error.message : String(error)}`);
+  });
 }
 
 function selectedGradleTarget(): GradleSelection | undefined {
@@ -158,7 +177,8 @@ async function debugSelected(): Promise<void> {
   if (!target) { return; }
   const serial = await chooseRunDevice();
   if (!serial) { return; }
-  await appFlows.debug(target, serial);
+  const applicationId = await appFlows.debug(target, serial);
+  if (applicationId) { followAppLogcat(serial, applicationId); }
 }
 
 function installedDebugAdapters(): DebugAdapterChoice[] {
@@ -245,10 +265,18 @@ export function activate(context: vscode.ExtensionContext): void {
   }));
   selection = new SelectionStore(context.workspaceState);
   deviceSelection = new DeviceSelectionStore(context.workspaceState);
-  const logcatOutput = vscode.window.createOutputChannel('Android Logcat');
+  const logcatOutput = vscode.window.createOutputChannel('Android Logcat', { log: true });
   context.subscriptions.push(logcatOutput);
   logcat = new LogcatSession(async (params, serial, listener) =>
-    (await getBridge()).startStream('logcat.stream', params, serial, listener), logcatOutput, message => {
+    (await getBridge()).startStream('logcat.stream', params, serial, listener), {
+    clear: () => logcatOutput.clear(),
+    appendLine: line => logcatOutput.info(line),
+    entry: (level, line) => logcatOutput[level](line),
+    show: preserveFocus => logcatOutput.show(preserveFocus),
+    hint: () => logcatOutput.logLevel > vscode.LogLevel.Trace
+      ? `Nível do canal: ${vscode.LogLevel[logcatOutput.logLevel]}. Entradas de prioridade menor ficam ocultas; ajuste em “Definir Nível de Log” no painel Saída.`
+      : undefined,
+  }, message => {
     output?.appendLine(`Logcat encerrado: ${message}`);
     void vscode.window.showErrorMessage(`Android Logcat: ${message}`);
   });
@@ -371,7 +399,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const serial = await chooseRunDevice();
     if (!serial) { return; }
     const applicationId = await appFlows.buildAndInstall(target, serial);
-    if (applicationId) { await appFlows.launch(applicationId, serial); }
+    if (applicationId && await appFlows.launch(applicationId, serial)) { followAppLogcat(serial, applicationId); }
   })));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.stop', () => runCommand(async () => {
     const target = await selectedApplication();
