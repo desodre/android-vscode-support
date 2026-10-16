@@ -27,4 +27,5 @@ android {
 
 dependencies {
     implementation(project(":fixture"))
+    testImplementation("junit:junit:4.13.2")
 }

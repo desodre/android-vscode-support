@@ -20,6 +20,8 @@ import { discoverAndroidWorkspace } from './projectDiscovery';
 import { createVscodeSelectionUi, SelectionStore } from './selection';
 import { classifySourceFile, resolveSourceSets } from './sourceSets';
 import { resourceDependencyModules, resourceVariant } from './resourceDependencies';
+import { AndroidUnitTestController } from './testing/testController';
+import { unitTestSourceRoots } from './testing/unitTests';
 import { requireTrust, withCancellableProgress } from './ui/vscodeHelpers';
 import { registerAndroidXmlResourceSupport } from './xmlResources';
 
@@ -29,6 +31,7 @@ let extensionPath: string;
 let selection: SelectionStore;
 let refreshInFlight: Promise<void> | undefined;
 let syncBuildDiagnostics: (() => void) | undefined;
+let unitTests: AndroidUnitTestController | undefined;
 let deviceSelection: DeviceSelectionStore;
 let logcat: LogcatSession | undefined;
 let debugAttacher: AndroidDebugAttacher | undefined;
@@ -97,6 +100,7 @@ async function performRefreshProjects(): Promise<void> {
     const catalog = await discoverAndroidWorkspace(await getBridge(), folders, signal);
     const invalidated = await selection.refresh(catalog);
     syncBuildDiagnostics?.();
+    unitTests?.refresh();
     for (const failure of catalog.failures) { output?.appendLine(`Falha ao descobrir ${failure.root}: ${failure.message}`); }
     if (invalidated.length) { output?.appendLine(`Seleção Android atualizada: ${invalidated.join(', ')}.`); }
     if (catalog.modules.length === 0) {
@@ -398,10 +402,21 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(xmlSupport);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   status.command = 'androidSupport.selectVariant';
+  unitTests = new AndroidUnitTestController(() => {
+    const resolved = selection.resolve();
+    return resolved ? {
+      selection: toGradleSelection(resolved),
+      roots: unitTestSourceRoots(resolveSourceSets(resolved.module, resolved.variant)),
+    } : undefined;
+  });
+  context.subscriptions.push(unitTests, vscode.workspace.onDidSaveTextDocument(document => {
+    if (document.uri.scheme === 'file' && unitTests?.isTestSource(document.uri.fsPath)) { unitTests.refresh(); }
+  }));
   const updateStatus = () => {
     status.text = `$(device-mobile) ${selection.statusText()}`;
     syncBuildDiagnostics?.();
     xmlSupport.refresh();
+    unitTests?.refresh();
   };
   updateStatus();
   status.show();
@@ -502,6 +517,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export async function deactivate(): Promise<void> {
   syncBuildDiagnostics = undefined;
+  unitTests = undefined;
   logcat?.stop();
   logcat = undefined;
   await debugAttacher?.dispose().catch(error => output?.appendLine(`Falha ao remover forward JDWP: ${String(error)}`));

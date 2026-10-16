@@ -32,8 +32,9 @@ VS Code ── extensão TypeScript (src/, Node, CommonJS) ──JSON por linha 
 | `projectDiscovery.ts`, `selection.ts`, `deviceSelection.ts` | Catálogo módulos/variantes; seleção persistida em `workspaceState`; seleção explícita de serial. |
 | `sourceSets.ts`, `resourceDependencies.ts` | Source sets ativos da variante; variante compatível e dependências entre módulos. |
 | `xmlResources.ts`, `manifestNavigation.ts` | Definição/validação de `@tipo/nome` e `R.tipo.nome`; navegação no manifest. |
-| `gradle/` | `runner` (wrapper; ações assemble/bundle/clean/lint), `taskProvider` (tarefa `androidGradle`, `executeTaskAndWait`), `diagnostics` (parse de erros), `diagnosticCoordinator` (Problemas sem duplicar language servers; uma instância para Gradle e outra para Lint), `lint` (relatório XML do lint), `artifacts` (APK/AAB por metadados). |
+| `gradle/` | `runner` (wrapper, argumentos extras), `taskProvider` (tarefa `androidGradle`, `executeTaskAndWait`), `diagnostics` (parse de erros), `diagnosticCoordinator` (Problemas sem duplicar language servers; uma instância para Gradle e outra para Lint), `lint` (relatório XML do lint), `artifacts` (APK/AAB por metadados). Ações: assemble/bundle/clean/lint/unitTest. |
 | `artifactAnalysis.ts` | Tamanho por categoria lido do índice ZIP e metadados do APK via `aapt2 dump badging`. |
+| `testing/` | `unitTests` (descoberta de `@Test` Kotlin/Java nos source sets de teste da variante, filtros `--tests`, JUnit XML, linha da falha) e `testController` (Test Explorer; tarefa `test<Variante>UnitTest`). |
 | `ui/vscodeHelpers.ts`, `util/abort.ts` | `withCancellableProgress`, `requireTrust`; `sleep` cancelável. |
 
 Kotlin (`bridge/src/main/kotlin/.../`): `Main.kt` (despacho do protocolo), `DeviceActions`, `DebugActions`, `DebugLaunchActions`, `GradleDiscovery`.

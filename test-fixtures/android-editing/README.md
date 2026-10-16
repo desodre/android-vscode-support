@@ -2,6 +2,8 @@
 
 This small Gradle project has a Kotlin app, a Java library, and `free`/`paid` flavors. It proves the Android extension's own XML and resource navigation without depending on the Kotlin or Java language servers (their import behavior belongs to issue #23). Both variants compile with AGP 9.0.1 and JDK 21.
 
+JUnit 4 unit tests cover the Test Explorer integration: `app/src/test` (Kotlin, including a backtick method name) runs for both flavors and `app/src/testFree` (Java) only for `free` variants. `./gradlew -p test-fixtures/android-editing :app:testFreeDebugUnitTest` runs all three; `testPaidDebugUnitTest` runs the two shared ones.
+
 The opt-in `xml-navigation-smoke.js` runs in a VS Code Extension Development Host and verifies:
 
 - Manifest components navigate to Kotlin and Java classes; its label navigates to `strings.xml`.

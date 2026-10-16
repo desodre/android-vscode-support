@@ -70,3 +70,5 @@ Para conclusão, navegação e refatoração gerais de Kotlin/Java, a estratégi
 
 **Android: Analisar APK/AAB da variante selecionada** mostra o tamanho do artefato, separado em código DEX, bibliotecas nativas, recursos, assets e metadados. Para APKs, também mostra `applicationId`, versão, `minSdk`/`targetSdk`, se o app é depurável, a Activity inicial, as ABIs e as permissões, lidos pelo `aapt2` do Android SDK. O manifesto de AABs exige `bundletool`, que ainda não foi integrado.
 
+O **Test Explorer** lista os testes JUnit do módulo e da variante selecionados, encontrados nos source sets de teste da variante (`src/test`, `src/test<Flavor>`, `src/test<BuildType>` e `src/test<Variante>`, em Kotlin ou Java). É possível executar a suíte, uma classe ou um método: a extensão chama `test<Variante>UnitTest` com filtros `--tests` e lê os relatórios JUnit XML do Gradle. Uma falha mostra a mensagem, o stack trace e a linha do teste. Os testes são redescobertos ao trocar a variante ou salvar um arquivo de teste. Testes instrumentados e depuração de testes ainda não estão disponíveis.
+
