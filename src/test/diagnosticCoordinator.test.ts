@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { resolve, sep } from 'node:path';
 import { test } from 'node:test';
 import { BuildIssue } from '../gradle/diagnostics';
 import { BuildDiagnosticCoordinator, dedupedDiagnosticPublisher, ExternalDiagnostic, hideDuplicatedIssues } from '../gradle/diagnosticCoordinator';
@@ -25,7 +26,7 @@ test('troca de variante invalida builds antigos e diagnósticos já mostrados', 
   assert.equal(visible.size, 0);
   const next = coordinator.begin('root::app::paidDebug');
   next.add(issue('/project/src/paid/Main.kt'));
-  assert.deepEqual([...visible.keys()], ['/project/src/paid/Main.kt']);
+  assert.deepEqual([...visible.keys()], [resolve('/project/src/paid/Main.kt')]);
 });
 
 test('build mais recente vence e stdout/stderr duplicados aparecem uma vez', () => {
@@ -36,7 +37,7 @@ test('build mais recente vence e stdout/stderr duplicados aparecem uma vez', () 
   old.add(issue('/project/Foo.kt', 'obsolete'));
   current.add(issue('/project/Foo.kt'));
   current.add(issue('/project/Foo.kt', '  Unresolved   reference '));
-  assert.equal(visible.get('/project/Foo.kt')?.length, 1);
+  assert.equal(visible.get(resolve('/project/Foo.kt'))?.length, 1);
 });
 
 test('edição e cancelamento removem diagnósticos e bloqueiam saída tardia', () => {
@@ -56,12 +57,12 @@ test('edição e cancelamento removem diagnósticos e bloqueiam saída tardia', 
 
 test('ignora builds fora da seleção e arquivos da variante inativa', () => {
   const { coordinator, visible, issue } = setup();
-  coordinator.selectTarget('selected', file => !file.includes('/other/'));
+  coordinator.selectTarget('selected', file => !file.includes(`${sep}other${sep}`));
   coordinator.begin('unselected').add(issue('/project/Foo.kt'));
   const session = coordinator.begin('selected');
   session.add(issue('/project/other/Foo.kt'));
   session.add(issue('/project/active/Foo.kt'));
-  assert.deepEqual([...visible.keys()], ['/project/active/Foo.kt']);
+  assert.deepEqual([...visible.keys()], [resolve('/project/active/Foo.kt')]);
 });
 
 test('oculta issue já reportada por outra fonte na mesma posição, ignorando espaços', () => {

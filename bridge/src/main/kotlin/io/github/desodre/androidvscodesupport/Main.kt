@@ -28,6 +28,9 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.io.FileDescriptor
+import java.io.FileOutputStream
+import java.io.PrintStream
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.concurrent.ConcurrentHashMap
@@ -180,7 +183,15 @@ private suspend fun handle(method: String, params: JsonObject, serial: String?, 
     else -> throw IllegalArgumentException("Operação desconhecida: $method")
 }
 
-fun main(args: Array<String>) = runBlocking {
+fun main(args: Array<String>) {
+    // The extension decodes stdout (protocol) and stderr (logs) as UTF-8; the JVM default is the platform
+    // charset (cp1252 on Windows), which corrupts non-ASCII text such as Portuguese error messages.
+    System.setOut(PrintStream(FileOutputStream(FileDescriptor.out), true, Charsets.UTF_8))
+    System.setErr(PrintStream(FileOutputStream(FileDescriptor.err), true, Charsets.UTF_8))
+    serve(args)
+}
+
+private fun serve(args: Array<String>) = runBlocking {
     val host = args.getOrNull(0) ?: "127.0.0.1"
     val port = args.getOrNull(1)?.toIntOrNull() ?: 5037
     val client = AdbClient(host, port, timeoutMillis = 120_000)
