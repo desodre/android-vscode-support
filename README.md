@@ -3,13 +3,14 @@
 Extensão em desenvolvimento para integrar Android nativo em Kotlin e Java ao VS Code.
 
 - [Plano de implementação](PLANO.md)
+- [Contexto para agentes e LLMs](AGENTS.md)
 - [Kanban público](https://github.com/users/desodre/projects/9)
 
 O trabalho está dividido em dez etapas consecutivas. Cada etapa tem uma issue principal e tarefas menores no Kanban. As primeiras entregas cobrem build e execução; a depuração completa depende do suporte JDWP planejado na biblioteca [`adb-utils`](https://github.com/desodre/adb-utils-gradle-package/issues/32).
 
 ## Primeira entrega: fundação
 
-A extensão já oferece três comandos: **Android: Diagnosticar ambiente**, **Android: Versão do servidor ADB** e **Android: Listar dispositivos**. Um serviço Kotlin/JVM usa a versão publicada `io.github.desodre:adb-utils:0.2.0` para consultar o servidor ADB. A extensão se comunica com ele por mensagens JSON versionadas, com IDs por requisição e cancelamento. O serviço escreve o protocolo em stdout e logs em stderr.
+A extensão já oferece três comandos: **Android: Diagnosticar ambiente**, **Android: Versão do servidor ADB** e **Android: Listar dispositivos**. Um serviço Kotlin/JVM usa a versão publicada `io.github.desodre:adb-utils:0.3.0` para consultar o servidor ADB. A extensão se comunica com ele por mensagens JSON versionadas, com IDs por requisição e cancelamento. O serviço escreve o protocolo em stdout e logs em stderr.
 
 ### Desenvolver localmente
 
