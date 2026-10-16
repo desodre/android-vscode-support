@@ -2,9 +2,11 @@ import * as vscode from 'vscode';
 import { BuiltArtifact, findBuiltArtifacts } from './artifacts';
 import { BuildIssue, BuildIssueCollector } from './diagnostics';
 import { BuildDiagnosticCoordinator, buildTargetKey } from './diagnosticCoordinator';
+import { formatLintSummary, lintReportFiles, lintReportStamp, readLintReport } from './lint';
 import { GradleAction, GradleSelection, gradleTaskName, runGradle } from './runner';
 
 const TASK_TYPE = 'androidGradle';
+const TASK_ACTIONS: readonly GradleAction[] = ['assemble', 'bundle', 'clean', 'lint'];
 
 interface AndroidTaskDefinition extends vscode.TaskDefinition {
   action: GradleAction;
@@ -36,13 +38,17 @@ class GradleTerminal implements vscode.Pseudoterminal {
       stdout: new BuildIssueCollector(this.selection.rootPath, addIssue),
       stderr: new BuildIssueCollector(this.selection.rootPath, addIssue),
     };
+    // Lint findings come from its XML report; its console output is not parsed as build errors.
+    const lint = this.action === 'lint';
+    const lintStampBefore = lint ? lintReportStamp(this.selection) : undefined;
     this.writeEmitter.fire(`Executando ${task}\r\n`);
     void runGradle(this.selection, this.action, (chunk, stream) => {
       this.writeEmitter.fire(chunk.replace(/\r?\n/g, '\r\n'));
-      collectors[stream].write(chunk);
+      if (!lint) { collectors[stream].write(chunk); }
     }, this.controller.signal).then(result => {
       collectors.stdout.flush();
       collectors.stderr.flush();
+      if (lint && !result.cancelled) { this.publishLint(session, lintStampBefore, result.exitCode === 0); }
       session.finish(result.cancelled);
       if (result.cancelled) { this.writeEmitter.fire('\r\nBuild cancelado.\r\n'); }
       else if (result.exitCode === 0 && (this.action === 'assemble' || this.action === 'bundle')) {
@@ -67,6 +73,19 @@ class GradleTerminal implements vscode.Pseudoterminal {
   }
 
   close(): void { this.controller.abort(); }
+
+  private publishLint(session: { add(issue: BuildIssue): void }, stampBefore: number | undefined, succeeded: boolean): void {
+    try {
+      const report = readLintReport(this.selection, stampBefore, succeeded);
+      if (!report) { this.writeEmitter.fire('\r\nRelatório XML do lint não foi gerado nesta execução.\r\n'); return; }
+      for (const issue of report.issues) { session.add(issue); }
+      this.writeEmitter.fire(`\r\n${formatLintSummary(report)}\r\n`);
+      for (const issue of report.unlocated) { this.writeEmitter.fire(`- [${issue.code}] ${issue.message}\r\n`); }
+      this.writeEmitter.fire(`Relatório HTML: ${lintReportFiles(this.selection).html}\r\n`);
+    } catch (error) {
+      this.writeEmitter.fire(`\r\nFalha ao ler o relatório do lint: ${String(error)}\r\n`);
+    }
+  }
 
   private finish(exitCode: number): void {
     if (this.finished) { return; }
@@ -119,27 +138,27 @@ export async function executeTaskAndWait(task: vscode.Task): Promise<void> {
 
 export function registerGradleTaskProvider(
   getSelection: (refresh: boolean) => Promise<GradleSelection | undefined>,
-  diagnostics: BuildDiagnosticCoordinator,
+  diagnosticsFor: (action: GradleAction) => BuildDiagnosticCoordinator,
   onBuilt?: (artifacts: BuiltArtifact[]) => void,
 ): vscode.Disposable {
   return vscode.tasks.registerTaskProvider(TASK_TYPE, {
     provideTasks: async () => {
       if (!vscode.workspace.isTrusted) { return []; }
       const selection = await getSelection(false);
-      const actions: GradleAction[] = selection?.runnable === false ? ['assemble', 'clean'] : ['assemble', 'bundle', 'clean'];
+      const actions = TASK_ACTIONS.filter(action => action !== 'bundle' || selection?.runnable !== false);
       return selection ? actions.map(action =>
-        createGradleTask(selection, action, diagnostics, onBuilt)) : [];
+        createGradleTask(selection, action, diagnosticsFor(action), onBuilt)) : [];
     },
     resolveTask: async task => {
       if (!vscode.workspace.isTrusted) { return undefined; }
       const selection = await getSelection(true);
       const definition = task.definition as AndroidTaskDefinition;
       if (!selection || selection.rootPath !== definition.rootPath || selection.modulePath !== definition.module ||
-          selection.variant !== definition.variant || !['assemble', 'bundle', 'clean'].includes(definition.action) ||
+          selection.variant !== definition.variant || !TASK_ACTIONS.includes(definition.action) ||
           (selection.runnable === false && definition.action === 'bundle')) {
         return undefined;
       }
-      return createGradleTask(selection, definition.action, diagnostics, onBuilt);
+      return createGradleTask(selection, definition.action, diagnosticsFor(definition.action), onBuilt);
     },
   });
 }

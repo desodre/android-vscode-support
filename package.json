@@ -31,6 +31,9 @@
       { "command": "androidSupport.bundle", "title": "Android: Gerar AAB da variante selecionada" },
       { "command": "androidSupport.install", "title": "Android: Instalar variante selecionada" },
       { "command": "androidSupport.clean", "title": "Android: Limpar módulo selecionado" },
+      { "command": "androidSupport.lint", "title": "Android: Executar Lint da variante selecionada" },
+      { "command": "androidSupport.openLintReport", "title": "Android: Abrir relatório do Lint" },
+      { "command": "androidSupport.analyzeArtifact", "title": "Android: Analisar APK/AAB da variante selecionada" },
       { "command": "androidSupport.selectModule", "title": "Android: Selecionar módulo" },
       { "command": "androidSupport.selectVariant", "title": "Android: Selecionar variante" }
     ],
@@ -38,7 +41,7 @@
       "type": "androidGradle",
       "required": ["action", "module", "variant", "rootPath"],
       "properties": {
-        "action": { "type": "string", "enum": ["assemble", "bundle", "clean"] },
+        "action": { "type": "string", "enum": ["assemble", "bundle", "clean", "lint"] },
         "module": { "type": "string" },
         "variant": { "type": "string" },
         "rootPath": { "type": "string" }

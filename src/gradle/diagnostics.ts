@@ -6,7 +6,12 @@ export interface BuildIssue {
   line: number;
   column: number;
   message: string;
-  severity: 'error' | 'warning';
+  severity: 'error' | 'warning' | 'information';
+  /** Exclusive end column on `line`, when the tool reports a span. */
+  endColumn?: number;
+  /** Check identifier, e.g. a lint issue id, with its documentation URL. */
+  code?: string;
+  codeUrl?: string;
 }
 
 const SOURCE = String.raw`(.+?\.(?:kt|kts|java|xml))`;

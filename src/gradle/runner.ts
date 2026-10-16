@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ResolvedSelection } from '../selection';
 
-export type GradleAction = 'assemble' | 'bundle' | 'install' | 'clean';
+export type GradleAction = 'assemble' | 'bundle' | 'install' | 'clean' | 'lint';
 
 export interface GradleSelection {
   rootPath: string;
