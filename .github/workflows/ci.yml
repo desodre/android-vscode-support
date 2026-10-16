@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        # npm runs scripts through cmd.exe on Windows, where ./gradlew does not work; run the steps of `npm test` in bash.
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - name: Type-check
+        run: npm run check
+      - name: Compile extension
+        run: npm run compile
+      - name: Test and install Kotlin service
+        run: ./gradlew :bridge:test :bridge:installDist --no-daemon
+      - name: Test extension
+        run: node --test out/test/*.test.js
+      - name: Upload Kotlin test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-test-reports-${{ matrix.os }}
+          path: bridge/build/reports/tests/
+          if-no-files-found: ignore

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ResolvedSelection } from '../selection';
 
-export type GradleAction = 'assemble' | 'bundle' | 'install' | 'clean';
+export type GradleAction = 'assemble' | 'bundle' | 'install' | 'clean' | 'lint' | 'unitTest';
 
 export interface GradleSelection {
   rootPath: string;
@@ -38,7 +38,9 @@ export function gradleTaskName(selection: GradleSelection, action: GradleAction)
   if (!VARIANT_NAME.test(selection.variant)) { throw new Error(`Variante Android inválida: ${selection.variant}`); }
   const base = selection.modulePath === ':' ? '' : selection.modulePath;
   if (action === 'clean') { return `${base}:clean`; }
-  return `${base}:${action}${selection.variant[0].toUpperCase()}${selection.variant.slice(1)}`;
+  const variant = `${selection.variant[0].toUpperCase()}${selection.variant.slice(1)}`;
+  if (action === 'unitTest') { return `${base}:test${variant}UnitTest`; }
+  return `${base}:${action}${variant}`;
 }
 
 function stopProcess(pid: number | undefined, force: boolean): void {
@@ -60,6 +62,7 @@ export function runGradle(
   action: GradleAction,
   onOutput: (chunk: string, stream: 'stdout' | 'stderr') => void,
   signal?: AbortSignal,
+  extraArgs: readonly string[] = [],
 ): Promise<GradleRunResult> {
   const task = gradleTaskName(selection, action);
   const wrapper = join(selection.rootPath, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
@@ -67,7 +70,7 @@ export function runGradle(
   if (signal?.aborted) { return Promise.resolve({ exitCode: 130, cancelled: true }); }
 
   return new Promise((resolve, reject) => {
-    const child = spawn(wrapper, ['--console=plain', task], {
+    const child = spawn(wrapper, ['--console=plain', task, ...extraArgs], {
       cwd: selection.rootPath,
       env: process.env,
       detached: process.platform !== 'win32',

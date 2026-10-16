@@ -30,7 +30,7 @@ As configurações `androidSupport.javaHome`, `androidSupport.sdkPath` e `androi
 npm test
 ```
 
-O teste integrado usa um servidor ADB simulado em uma porta local. Ele não exige dispositivo físico.
+O teste integrado usa um servidor ADB simulado em uma porta local. Ele não exige dispositivo físico. Se não houver JDK 17 instalado, o Gradle baixa o toolchain na primeira execução. O CI repete esses passos em Linux, Windows e macOS a cada push em `main`/`dev` e em pull requests.
 
 ## Etapa 02: projetos e compilação
 
@@ -63,3 +63,12 @@ Para conclusão, navegação e refatoração gerais de Kotlin/Java, a estratégi
 **Android: Conectar depurador ao aplicativo em execução** usa o dispositivo selecionado, procura o PID do pacote e cria um encaminhamento JDWP por meio de `adb-utils:0.3.0`. Escolha Kotlin by JetBrains ou Debugger for Java quando ambos estiverem instalados. A extensão verifica o handshake antes do attach e remove o encaminhamento ao terminar a sessão. O aplicativo deve estar instalado, em execução e ser depurável. O adaptador Java usa o módulo Gradle e os diretórios de código da variante para localizar fontes e avaliar expressões. Um breakpoint Java com pilha, variável, avaliação e passo foi validado em aparelho físico; Kotlin e emulador ainda exigem validação. Consulte a [decisão e matriz de validação](docs/debugging.md) e a [fixture de teste](test-fixtures/android-debug/README.md).
 
 **Android: Compilar, instalar e depurar aplicativo** compila a variante selecionada, instala o APK no dispositivo escolhido, reinicia o pacote aguardando o depurador e conecta ao novo PID. Se a conexão for cancelada ou falhar, encerra o processo e limpa a configuração de espera. A espera pelo depurador, a descoberta do novo PID e o handshake JDWP passaram em aparelho físico; o comando completo ainda precisa de validação em dispositivo e emulador.
+
+## Etapa 06 em desenvolvimento: testes, lint e análise do artefato
+
+**Android: Executar Lint da variante selecionada** roda `lint<Variante>` no módulo escolhido e lê o relatório XML gerado pelo Android Gradle Plugin (`build/reports/lint-results-<variante>.xml`). Os alertas aparecem em **Problemas** com a origem **Android Lint**, o identificador da verificação e o link para a documentação. Eles somem quando a variante muda ou o arquivo é editado. Alertas sem arquivo, como verificações do projeto, são listados no terminal da tarefa. **Android: Abrir relatório do Lint** abre o relatório HTML no navegador.
+
+**Android: Analisar APK/AAB da variante selecionada** mostra o tamanho do artefato, separado em código DEX, bibliotecas nativas, recursos, assets e metadados. Para APKs, também mostra `applicationId`, versão, `minSdk`/`targetSdk`, se o app é depurável, a Activity inicial, as ABIs e as permissões, lidos pelo `aapt2` do Android SDK. O manifesto de AABs exige `bundletool`, que ainda não foi integrado.
+
+O **Test Explorer** lista os testes JUnit do módulo e da variante selecionados, encontrados nos source sets de teste da variante (`src/test`, `src/test<Flavor>`, `src/test<BuildType>` e `src/test<Variante>`, em Kotlin ou Java). É possível executar a suíte, uma classe ou um método: a extensão chama `test<Variante>UnitTest` com filtros `--tests` e lê os relatórios JUnit XML do Gradle. Uma falha mostra a mensagem, o stack trace e a linha do teste. Os testes são redescobertos ao trocar a variante ou salvar um arquivo de teste. Testes instrumentados e depuração de testes ainda não estão disponíveis.
+

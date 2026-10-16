@@ -86,6 +86,14 @@ function groupAlive(pid: number): boolean {
   catch { return false; }
 }
 
+/**
+ * startAvd rejects only after the process group is gone, so a missing pid file means the fake emulator was
+ * killed before it could write it (common under load when start-server fails at once).
+ */
+function startedGroupStopped(pidFile: string): boolean {
+  return !existsSync(pidFile) || !groupAlive(Number(readFileSync(pidFile, 'utf8')));
+}
+
 test('AVD pronto retorna somente o serial do processo iniciado', async t => {
   if (process.platform === 'win32') { t.skip('Fixture usa executáveis POSIX'); return; }
   const { sdk, adb, pidFile } = fakeAvd(t, 'boot');
@@ -135,7 +143,7 @@ test('timeout e falha do ADB encerram o emulador iniciado', async t => {
     await assert.rejects(startAvd(sdk, adb, 'TestAVD', [], undefined, undefined,
       { bootTimeoutMs: 300, pollIntervalMs: 20 }),
     mode === 'wait' ? /Tempo esgotado/ : /Falha ao iniciar o servidor ADB/);
-    assert.equal(groupAlive(await fakePid(pidFile)), false);
+    assert.ok(startedGroupStopped(pidFile));
   }
 });
 

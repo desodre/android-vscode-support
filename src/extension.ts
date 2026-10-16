@@ -1,22 +1,27 @@
 import * as vscode from 'vscode';
-import { resolve } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 import { AppFlows, createVscodeAppFlowUi, DebugAdapterChoice } from './appFlows';
 import { BridgeClient, DeviceInfo } from './bridgeClient';
+import { Badging, dumpBadging, findAapt2, formatArtifactReport, parseBadging, readZipEntries } from './artifactAnalysis';
 import { BridgeManager } from './bridgeManager';
 import { createVscodeDeviceSelectionUi, DeviceSelectionStore } from './deviceSelection';
 import { AndroidDebugAttacher } from './debug/attach';
 import { listAvds, startAvd } from './emulator';
 import { logcatFilter, LogcatSession, pickLogcatFilter, shouldOpenLogcatOnRun } from './logcat';
 import { formatEnvironment, inspectEnvironment } from './environment';
-import { BuiltArtifact } from './gradle/artifacts';
+import { BuiltArtifact, findBuiltArtifacts } from './gradle/artifacts';
 import { BuildDiagnosticCoordinator, buildTargetKey, dedupedDiagnosticPublisher } from './gradle/diagnosticCoordinator';
 import { BuildIssue } from './gradle/diagnostics';
+import { lintReportFiles } from './gradle/lint';
 import { createGradleTask, executeTaskAndWait, registerGradleTaskProvider } from './gradle/taskProvider';
 import { GradleAction, GradleSelection, toGradleSelection } from './gradle/runner';
 import { discoverAndroidWorkspace } from './projectDiscovery';
 import { createVscodeSelectionUi, SelectionStore } from './selection';
 import { classifySourceFile, resolveSourceSets } from './sourceSets';
 import { resourceDependencyModules, resourceVariant } from './resourceDependencies';
+import { AndroidUnitTestController } from './testing/testController';
+import { unitTestSourceRoots } from './testing/unitTests';
 import { requireTrust, withCancellableProgress } from './ui/vscodeHelpers';
 import { registerAndroidXmlResourceSupport } from './xmlResources';
 
@@ -26,6 +31,7 @@ let extensionPath: string;
 let selection: SelectionStore;
 let refreshInFlight: Promise<void> | undefined;
 let syncBuildDiagnostics: (() => void) | undefined;
+let unitTests: AndroidUnitTestController | undefined;
 let deviceSelection: DeviceSelectionStore;
 let logcat: LogcatSession | undefined;
 let debugAttacher: AndroidDebugAttacher | undefined;
@@ -94,6 +100,7 @@ async function performRefreshProjects(): Promise<void> {
     const catalog = await discoverAndroidWorkspace(await getBridge(), folders, signal);
     const invalidated = await selection.refresh(catalog);
     syncBuildDiagnostics?.();
+    unitTests?.refresh();
     for (const failure of catalog.failures) { output?.appendLine(`Falha ao descobrir ${failure.root}: ${failure.message}`); }
     if (invalidated.length) { output?.appendLine(`Seleção Android atualizada: ${invalidated.join(', ')}.`); }
     if (catalog.modules.length === 0) {
@@ -234,18 +241,75 @@ async function runCommand(action: () => Promise<void>): Promise<void> {
   }
 }
 
-function createBuildDiagnostics(collection: vscode.DiagnosticCollection): BuildDiagnosticCoordinator {
+const DIAGNOSTIC_SEVERITY: Record<BuildIssue['severity'], vscode.DiagnosticSeverity> = {
+  error: vscode.DiagnosticSeverity.Error,
+  warning: vscode.DiagnosticSeverity.Warning,
+  information: vscode.DiagnosticSeverity.Information,
+};
+
+/** Publishes `source` issues (Gradle build output or lint report) into its own collection. */
+function createIssueDiagnostics(collection: vscode.DiagnosticCollection, source: string): BuildDiagnosticCoordinator {
   return new BuildDiagnosticCoordinator(dedupedDiagnosticPublisher({
     clear: () => collection.clear(),
     set: (file, issues) => collection.set(vscode.Uri.file(file), issues.map((issue: BuildIssue) => {
-      const range = new vscode.Range(issue.line - 1, issue.column - 1, issue.line - 1, issue.column);
-      const diagnostic = new vscode.Diagnostic(range, issue.message,
-        issue.severity === 'error' ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
-      diagnostic.source = 'Android Gradle';
+      const range = new vscode.Range(issue.line - 1, issue.column - 1, issue.line - 1, issue.endColumn ? issue.endColumn - 1 : issue.column);
+      const diagnostic = new vscode.Diagnostic(range, issue.message, DIAGNOSTIC_SEVERITY[issue.severity]);
+      diagnostic.source = source;
+      if (issue.code) {
+        diagnostic.code = issue.codeUrl ? { value: issue.code, target: vscode.Uri.parse(issue.codeUrl) } : issue.code;
+      }
       return diagnostic;
     })),
-  }, file => vscode.languages.getDiagnostics(vscode.Uri.file(file)).filter(item => item.source !== 'Android Gradle')
+  }, file => vscode.languages.getDiagnostics(vscode.Uri.file(file)).filter(item => item.source !== source)
     .map(item => ({ line: item.range.start.line, character: item.range.start.character, message: item.message }))));
+}
+
+/** Target for commands that accept any Android module (library or application). */
+async function selectedModuleTarget(): Promise<GradleSelection | undefined> {
+  await refreshProjects();
+  if (!selectedGradleTarget()) { await selection.pickModule(createVscodeSelectionUi()); }
+  return selectedGradleTarget();
+}
+
+async function openLintReport(): Promise<void> {
+  const target = await selectedModuleTarget();
+  if (!target) { return; }
+  const { html } = lintReportFiles(target);
+  if (!existsSync(html)) { throw new Error(`Relatório do lint não encontrado para ${target.modulePath} [${target.variant}]. Execute o lint primeiro.`); }
+  await vscode.env.openExternal(vscode.Uri.file(html));
+}
+
+async function analyzeArtifact(): Promise<void> {
+  const target = await selectedModuleTarget();
+  if (!target) { return; }
+  if (!target.runnable) { throw new Error('Selecione um módulo de aplicativo Android.'); }
+  const artifacts = findBuiltArtifacts(target, target.applicationId ?? null);
+  if (artifacts.length === 0) {
+    throw new Error(`Nenhum APK ou AAB de ${target.modulePath} [${target.variant}]. Compile ou gere o AAB primeiro.`);
+  }
+  const artifact = artifacts.length === 1 ? artifacts[0] : (await vscode.window.showQuickPick(artifacts.map(item => ({
+    label: `${item.type}: ${basename(item.file)}`,
+    description: item.filters.map(filter => `${filter.filterType}: ${filter.value}`).join(', ') || undefined,
+    detail: item.file, artifact: item,
+  })), { placeHolder: 'Escolha o artefato a analisar' }))?.artifact;
+  if (!artifact) { return; }
+  const entries = readZipEntries(artifact.file);
+  let badging: Badging | undefined;
+  let problem: string | undefined;
+  if (artifact.type === 'AAB') {
+    problem = 'metadados do manifesto de AAB exigem bundletool, ainda não integrado.';
+  } else {
+    const environment = await inspectEnvironment(extensionPath);
+    const aapt2 = environment.sdk ? findAapt2(environment.sdk) : undefined;
+    if (!aapt2) { problem = 'aapt2 não encontrado em build-tools do Android SDK.'; }
+    else {
+      try { badging = parseBadging(await dumpBadging(aapt2, artifact.file)); }
+      catch (error) { problem = error instanceof Error ? error.message : String(error); }
+    }
+  }
+  output?.appendLine('');
+  output?.appendLine(formatArtifactReport(artifact, statSync(artifact.file).size, entries, badging, problem));
+  output?.show(true);
 }
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -282,7 +346,11 @@ export function activate(context: vscode.ExtensionContext): void {
   });
   const diagnostics = vscode.languages.createDiagnosticCollection('Android Gradle');
   context.subscriptions.push(diagnostics);
-  const buildDiagnostics = createBuildDiagnostics(diagnostics);
+  const buildDiagnostics = createIssueDiagnostics(diagnostics, 'Android Gradle');
+  const lintCollection = vscode.languages.createDiagnosticCollection('Android Lint');
+  context.subscriptions.push(lintCollection);
+  const lintDiagnostics = createIssueDiagnostics(lintCollection, 'Android Lint');
+  const diagnosticsFor = (action: GradleAction) => action === 'lint' ? lintDiagnostics : buildDiagnostics;
   appFlows = new AppFlows({
     bridge: getBridge,
     ui: createVscodeAppFlowUi(withCancellableProgress),
@@ -300,14 +368,22 @@ export function activate(context: vscode.ExtensionContext): void {
     const resolved = selection.resolve();
     const target = resolved ? toGradleSelection(resolved) : undefined;
     const layout = resolved ? resolveSourceSets(resolved.module, resolved.variant) : undefined;
-    buildDiagnostics.selectTarget(target ? buildTargetKey(target) : undefined,
-      file => !layout || classifySourceFile(file, layout) !== 'inactive');
+    for (const coordinator of [buildDiagnostics, lintDiagnostics]) {
+      coordinator.selectTarget(target ? buildTargetKey(target) : undefined,
+        file => !layout || classifySourceFile(file, layout) !== 'inactive');
+    }
   };
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => {
-    if (event.document.uri.scheme === 'file') { buildDiagnostics.invalidateFile(event.document.uri.fsPath); }
+    if (event.document.uri.scheme !== 'file') { return; }
+    buildDiagnostics.invalidateFile(event.document.uri.fsPath);
+    lintDiagnostics.invalidateFile(event.document.uri.fsPath);
   }));
   context.subscriptions.push(vscode.languages.onDidChangeDiagnostics(event => {
-    for (const uri of event.uris) { if (uri.scheme === 'file') { buildDiagnostics.republish(uri.fsPath); } }
+    for (const uri of event.uris) {
+      if (uri.scheme !== 'file') { continue; }
+      buildDiagnostics.republish(uri.fsPath);
+      lintDiagnostics.republish(uri.fsPath);
+    }
   }));
   const resourceContext = (moduleRoot: string) => {
     const owner = selection.modules.find(module => resolve(module.projectDir) === resolve(moduleRoot));
@@ -326,10 +402,21 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(xmlSupport);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   status.command = 'androidSupport.selectVariant';
+  unitTests = new AndroidUnitTestController(() => {
+    const resolved = selection.resolve();
+    return resolved ? {
+      selection: toGradleSelection(resolved),
+      roots: unitTestSourceRoots(resolveSourceSets(resolved.module, resolved.variant)),
+    } : undefined;
+  });
+  context.subscriptions.push(unitTests, vscode.workspace.onDidSaveTextDocument(document => {
+    if (document.uri.scheme === 'file' && unitTests?.isTestSource(document.uri.fsPath)) { unitTests.refresh(); }
+  }));
   const updateStatus = () => {
     status.text = `$(device-mobile) ${selection.statusText()}`;
     syncBuildDiagnostics?.();
     xmlSupport.refresh();
+    unitTests?.refresh();
   };
   updateStatus();
   status.show();
@@ -350,7 +437,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try { await refreshProjects(); } catch (error) { output?.appendLine(String(error)); }
     }
     return selectedGradleTarget();
-  }, buildDiagnostics));
+  }, diagnosticsFor));
 
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.diagnose', () => runCommand(async () => {
     const environment = await inspectEnvironment(extensionPath);
@@ -420,14 +507,17 @@ export function activate(context: vscode.ExtensionContext): void {
   })));
   for (const [command, action] of [
     ['androidSupport.build', 'assemble'], ['androidSupport.bundle', 'bundle'],
-    ['androidSupport.clean', 'clean']
+    ['androidSupport.clean', 'clean'], ['androidSupport.lint', 'lint']
   ] as const) {
-    context.subscriptions.push(vscode.commands.registerCommand(command, () => runCommand(() => runSelectedTask(action, buildDiagnostics))));
+    context.subscriptions.push(vscode.commands.registerCommand(command, () => runCommand(() => runSelectedTask(action, diagnosticsFor(action)))));
   }
+  context.subscriptions.push(vscode.commands.registerCommand('androidSupport.openLintReport', () => runCommand(openLintReport)));
+  context.subscriptions.push(vscode.commands.registerCommand('androidSupport.analyzeArtifact', () => runCommand(analyzeArtifact)));
 }
 
 export async function deactivate(): Promise<void> {
   syncBuildDiagnostics = undefined;
+  unitTests = undefined;
   logcat?.stop();
   logcat = undefined;
   await debugAttacher?.dispose().catch(error => output?.appendLine(`Falha ao remover forward JDWP: ${String(error)}`));

@@ -32,7 +32,9 @@ VS Code ── extensão TypeScript (src/, Node, CommonJS) ──JSON por linha 
 | `projectDiscovery.ts`, `selection.ts`, `deviceSelection.ts` | Catálogo módulos/variantes; seleção persistida em `workspaceState`; seleção explícita de serial. |
 | `sourceSets.ts`, `resourceDependencies.ts` | Source sets ativos da variante; variante compatível e dependências entre módulos. |
 | `xmlResources.ts`, `manifestNavigation.ts` | Definição/validação de `@tipo/nome` e `R.tipo.nome`; navegação no manifest. |
-| `gradle/` | `runner` (wrapper), `taskProvider` (tarefa `androidGradle`, `executeTaskAndWait`), `diagnostics` (parse de erros), `diagnosticCoordinator` (Problemas sem duplicar language servers), `artifacts` (APK/AAB por metadados). |
+| `gradle/` | `runner` (wrapper, argumentos extras), `taskProvider` (tarefa `androidGradle`, `executeTaskAndWait`), `diagnostics` (parse de erros), `diagnosticCoordinator` (Problemas sem duplicar language servers; uma instância para Gradle e outra para Lint), `lint` (relatório XML do lint), `artifacts` (APK/AAB por metadados). Ações: assemble/bundle/clean/lint/unitTest. |
+| `artifactAnalysis.ts` | Tamanho por categoria lido do índice ZIP e metadados do APK via `aapt2 dump badging`. |
+| `testing/` | `unitTests` (descoberta de `@Test` Kotlin/Java nos source sets de teste da variante, filtros `--tests`, JUnit XML, linha da falha) e `testController` (Test Explorer; tarefa `test<Variante>UnitTest`). |
 | `ui/vscodeHelpers.ts`, `util/abort.ts` | `withCancellableProgress`, `requireTrust`; `sleep` cancelável. |
 
 Kotlin (`bridge/src/main/kotlin/.../`): `Main.kt` (despacho do protocolo), `DeviceActions`, `DebugActions`, `DebugLaunchActions`, `GradleDiscovery`.
@@ -44,10 +46,11 @@ npm install
 npm run check          # tsc --noEmit
 npm run compile        # src → out/
 npm test               # compile + ./gradlew :bridge:test :bridge:installDist + node --test out/test/*.test.js
-node --test out/test/*.test.js   # só TypeScript; 6 testes de integração falham sem bridge compilado
+node --test out/test/*.test.js   # só TypeScript; os testes de integração exigem o bridge compilado (installDist)
 ```
 
-- O Gradle exige **toolchain JDK 17** (`jvmToolchain(17)`); sem ele `bridge:*` não compila.
+- O Gradle usa **toolchain JDK 17** (`jvmToolchain(17)`); se a máquina não tiver um, o plugin foojay (`settings.gradle.kts`) o baixa na primeira execução.
+- CI (`.github/workflows/ci.yml`): Linux, Windows e macOS rodam `check`, `compile`, `:bridge:test :bridge:installDist` e `node --test` em bash (no Windows, o npm usa cmd.exe, onde `./gradlew` não funciona). Testes com executáveis POSIX são pulados no Windows.
 - F5 no VS Code abre o Extension Development Host (`.vscode/launch.json`).
 - Provas reais (aparelho/AVD/LSP) são scripts opt-in em `test-fixtures/*/` — ver os READMEs de cada fixture. Não publicar serial de aparelho físico em commits, issues ou PRs.
 
@@ -68,6 +71,8 @@ node --test out/test/*.test.js   # só TypeScript; 6 testes de integração falh
 | 3 Dispositivos/execução | Executar validado em aparelho físico e AVD (#22). |
 | 4 Edição | Navegação/validação XML pronta (#25). Kotlin/Java LSP **bloqueado** no AGP 9: Java LS sem source paths, sem navegação SDK/cross-module (#23; ver `docs/plan-avd-language.md`, `docs/language-support.md`). |
 | 5 Depuração | Attach Java validado em aparelho físico; Kotlin e emulador pendentes (`docs/debugging.md`). |
-| 6–10 | Não iniciadas (testes/lint, SDK/AVD manager, preview, profilers, publicação). |
+| 6 Testes/lint | Lint e análise de APK/AAB (#33); testes unitários no Test Explorer (#31). Testes instrumentados (#32) pendentes. |
+| 7–9 | Não iniciadas (SDK/AVD manager, preview, profilers). |
+| 10 Qualidade | CI Linux/Windows/macOS (#45). VSIX e publicação pendentes. |
 
 Docs: `docs/debugging.md` (decisão do adaptador DAP), `docs/language-support.md` (matriz LSP), `docs/plan-avd-language.md` (recuperação AVD/LSP), `docs/plan-refactor-improvements.md` (refatoração F1–F7, aplicada).

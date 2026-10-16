@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { classifySourceFile, resolveSourceSets } from '../sourceSets';
@@ -62,6 +62,6 @@ test('componentes inválidos do catálogo não criam diretórios fora do módulo
     });
     assert.deepEqual(layout.sourceSetNames, ['main']);
     assert.equal(layout.generatedRoots.length, 0);
-    assert.ok(layout.sourceRoots.every(item => item.path.startsWith(join(root, 'src') + '/')));
+    assert.ok(layout.sourceRoots.every(item => item.path.startsWith(join(root, 'src') + sep)));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

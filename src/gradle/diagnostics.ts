@@ -1,12 +1,17 @@
 import { fileURLToPath } from 'node:url';
-import { isAbsolute, resolve } from 'node:path';
+import { resolve } from 'node:path';
 
 export interface BuildIssue {
   file: string;
   line: number;
   column: number;
   message: string;
-  severity: 'error' | 'warning';
+  severity: 'error' | 'warning' | 'information';
+  /** Exclusive end column on `line`, when the tool reports a span. */
+  endColumn?: number;
+  /** Check identifier, e.g. a lint issue id, with its documentation URL. */
+  code?: string;
+  codeUrl?: string;
 }
 
 const SOURCE = String.raw`(.+?\.(?:kt|kts|java|xml))`;
@@ -23,7 +28,8 @@ function normalizeFile(root: string, value: string): string {
     try { path = fileURLToPath(value); }
     catch { return resolve(root, value); }
   }
-  return isAbsolute(path) ? path : resolve(root, path);
+  // resolve also normalizes absolute paths, e.g. `C:\dir/sub/File.java` printed by Gradle on Windows.
+  return resolve(root, path);
 }
 
 export function parseBuildIssue(root: string, rawLine: string): BuildIssue | undefined {
