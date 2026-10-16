@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { BuildIssue } from '../gradle/diagnostics';
-import { BuildDiagnosticCoordinator } from '../gradle/diagnosticCoordinator';
+import { BuildDiagnosticCoordinator, dedupedDiagnosticPublisher, ExternalDiagnostic, hideDuplicatedIssues } from '../gradle/diagnosticCoordinator';
 
 function setup() {
   const visible = new Map<string, readonly BuildIssue[]>();
@@ -62,4 +62,31 @@ test('ignora builds fora da seleção e arquivos da variante inativa', () => {
   session.add(issue('/project/other/Foo.kt'));
   session.add(issue('/project/active/Foo.kt'));
   assert.deepEqual([...visible.keys()], ['/project/active/Foo.kt']);
+});
+
+test('oculta issue já reportada por outra fonte na mesma posição, ignorando espaços', () => {
+  const issue: BuildIssue = { file: '/a.kt', line: 3, column: 2, severity: 'error', message: 'Unresolved  reference:\n foo' };
+  assert.deepEqual(hideDuplicatedIssues([issue], [{ line: 2, character: 1, message: 'Unresolved reference: foo' }]), []);
+  assert.deepEqual(hideDuplicatedIssues([issue], [{ line: 2, character: 2, message: 'Unresolved reference: foo' }]), [issue]);
+  assert.deepEqual(hideDuplicatedIssues([issue], [{ line: 2, character: 1, message: 'Outra mensagem' }]), [issue]);
+});
+
+test('publicador só escreve quando o conjunto visível muda', () => {
+  const writes: Array<[string, number]> = [];
+  let external: ExternalDiagnostic[] = [];
+  let clears = 0;
+  const publisher = dedupedDiagnosticPublisher({
+    clear: () => { clears++; }, set: (file, issues) => writes.push([file, issues.length]),
+  }, () => external);
+  const issue: BuildIssue = { file: '/a.kt', line: 3, column: 2, severity: 'error', message: 'falha' };
+  publisher.replace('/a.kt', [issue]);
+  publisher.replace('/a.kt', [issue]);
+  assert.deepEqual(writes, [['/a.kt', 1]]);
+  external = [{ line: 2, character: 1, message: 'falha' }];
+  publisher.replace('/a.kt', [issue]);
+  assert.deepEqual(writes, [['/a.kt', 1], ['/a.kt', 0]]);
+  publisher.clear();
+  publisher.replace('/a.kt', [issue]);
+  assert.equal(clears, 1);
+  assert.deepEqual(writes.at(-1), ['/a.kt', 0], 'após clear a mesma publicação volta a ser escrita');
 });

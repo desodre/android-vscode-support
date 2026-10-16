@@ -6,6 +6,46 @@ export function buildTargetKey(target: Pick<GradleSelection, 'rootPath' | 'modul
   return JSON.stringify([resolve(target.rootPath), target.modulePath, target.variant]);
 }
 
+export function normalizeDiagnosticMessage(message: string): string {
+  return message.trim().replace(/\s+/g, ' ');
+}
+
+/** A diagnostic from another source, with zero-based position as VS Code reports it. */
+export interface ExternalDiagnostic {
+  line: number;
+  character: number;
+  message: string;
+}
+
+/** Drops build issues that a language server already reports at the same position with the same text. */
+export function hideDuplicatedIssues(issues: readonly BuildIssue[], external: readonly ExternalDiagnostic[]): BuildIssue[] {
+  return issues.filter(issue => !external.some(item =>
+    item.line === issue.line - 1 && item.character === issue.column - 1 &&
+    normalizeDiagnosticMessage(item.message) === normalizeDiagnosticMessage(issue.message)));
+}
+
+export interface BuildDiagnosticSink {
+  clear(): void;
+  set(file: string, issues: readonly BuildIssue[]): void;
+}
+
+/** Publishes build issues not already reported by other sources, skipping writes that would change nothing. */
+export function dedupedDiagnosticPublisher(
+  sink: BuildDiagnosticSink, externalFor: (file: string) => readonly ExternalDiagnostic[],
+): BuildDiagnosticPublisher {
+  const published = new Map<string, string>();
+  return {
+    clear: () => { published.clear(); sink.clear(); },
+    replace: (file, issues) => {
+      const visible = hideDuplicatedIssues(issues, externalFor(file));
+      const fingerprint = JSON.stringify(visible.map(issue => [issue.line, issue.column, issue.severity, issue.message]));
+      if (published.get(file) === fingerprint) { return; }
+      published.set(file, fingerprint);
+      sink.set(file, visible);
+    },
+  };
+}
+
 export interface BuildDiagnosticPublisher {
   clear(): void;
   replace(file: string, issues: readonly BuildIssue[]): void;
@@ -45,7 +85,7 @@ export class BuildDiagnosticCoordinator {
         const file = resolve(issue.file);
         if (this.edited.has(file) || !this.acceptsFile(file)) { return; }
         const key = JSON.stringify([process.platform === 'win32' ? file.toLowerCase() : file,
-          issue.line, issue.column, issue.severity, issue.message.trim().replace(/\s+/g, ' ')]);
+          issue.line, issue.column, issue.severity, normalizeDiagnosticMessage(issue.message)]);
         if (this.seen.has(key)) { return; }
         this.seen.add(key);
         const issues = this.byFile.get(file) ?? [];
