@@ -1,17 +1,17 @@
 import * as vscode from 'vscode';
 import { resolve } from 'node:path';
-import { apkCandidates, applicationIdToStop, installApk, launchApp, launcherActivities, stopApp } from './appRunner';
+import { AppFlows, createVscodeAppFlowUi, DebugAdapterChoice } from './appFlows';
 import { BridgeClient, DeviceInfo } from './bridgeClient';
 import { BridgeManager } from './bridgeManager';
 import { createVscodeDeviceSelectionUi, DeviceSelectionStore } from './deviceSelection';
-import { AndroidDebugAttacher, AttachOptions, waitForProcess } from './debug/attach';
+import { AndroidDebugAttacher } from './debug/attach';
 import { listAvds, startAvd } from './emulator';
 import { LogcatSession, pickLogcatFilter } from './logcat';
 import { formatEnvironment, inspectEnvironment } from './environment';
-import { BuiltArtifact, findBuiltArtifacts } from './gradle/artifacts';
+import { BuiltArtifact } from './gradle/artifacts';
 import { BuildDiagnosticCoordinator, buildTargetKey, dedupedDiagnosticPublisher } from './gradle/diagnosticCoordinator';
 import { BuildIssue } from './gradle/diagnostics';
-import { createGradleTask, registerGradleTaskProvider } from './gradle/taskProvider';
+import { createGradleTask, executeTaskAndWait, registerGradleTaskProvider } from './gradle/taskProvider';
 import { GradleAction, GradleSelection, toGradleSelection } from './gradle/runner';
 import { discoverAndroidWorkspace } from './projectDiscovery';
 import { createVscodeSelectionUi, SelectionStore } from './selection';
@@ -24,17 +24,12 @@ let bridges: BridgeManager<BridgeClient> | undefined;
 let output: vscode.OutputChannel | undefined;
 let extensionPath: string;
 let selection: SelectionStore;
-let lastArtifacts: BuiltArtifact[] = [];
 let refreshInFlight: Promise<void> | undefined;
 let syncBuildDiagnostics: (() => void) | undefined;
 let deviceSelection: DeviceSelectionStore;
 let logcat: LogcatSession | undefined;
 let debugAttacher: AndroidDebugAttacher | undefined;
-const installedApplicationIds = new Map<string, string>();
-
-function installedKey(target: GradleSelection, serial: string): string {
-  return JSON.stringify([target.rootPath, target.modulePath, target.variant, serial]);
-}
+let appFlows: AppFlows;
 
 /** All device operations must call this; no implicit selection of a sole connected device. */
 export async function requireSelectedDevice(): Promise<string | undefined> {
@@ -100,7 +95,6 @@ async function runSelectedTask(action: GradleAction, diagnostics: BuildDiagnosti
     throw new Error('Esta tarefa exige um módulo de aplicativo Android.');
   }
   const task = createGradleTask(target, action, diagnostics, artifacts => {
-    lastArtifacts = artifacts;
     output?.appendLine(`Artefatos de ${target.modulePath} [${target.variant}]: ${artifacts.map(item => item.file).join(', ') || 'nenhum'}`);
   });
   await vscode.tasks.executeTask(task);
@@ -113,52 +107,6 @@ async function selectedApplication(): Promise<GradleSelection | undefined> {
   const target = selectedGradleTarget();
   if (target && !target.runnable) { throw new Error('Selecione um módulo de aplicativo Android.'); }
   return target;
-}
-
-async function executeAndWait(task: vscode.Task): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    let execution: vscode.TaskExecution | undefined;
-    const earlyEvents: vscode.TaskProcessEndEvent[] = [];
-    const finish = (event: vscode.TaskProcessEndEvent) => {
-      listener.dispose();
-      if (event.exitCode === 0) { resolve(); }
-      else { reject(new Error(`Build Android falhou ou foi cancelado (código ${event.exitCode ?? 'desconhecido'}). Veja a saída da tarefa.`)); }
-    };
-    const listener = vscode.tasks.onDidEndTaskProcess(event => {
-      if (!execution) { earlyEvents.push(event); return; }
-      if (event.execution === execution) { finish(event); }
-    });
-    void vscode.tasks.executeTask(task).then(started => {
-      execution = started;
-      const ended = earlyEvents.find(event => event.execution === started);
-      if (ended) { finish(ended); }
-    }, error => { listener.dispose(); reject(error); });
-  });
-}
-
-async function buildAndInstall(target: GradleSelection, serial: string, diagnostics: BuildDiagnosticCoordinator): Promise<string | undefined> {
-  let built: BuiltArtifact[] = [];
-  const task = createGradleTask(target, 'assemble', diagnostics, artifacts => { built = artifacts; lastArtifacts = artifacts; });
-  await executeAndWait(task);
-  const artifacts = apkCandidates(built.length ? built : findBuiltArtifacts(target, target.applicationId ?? null), target);
-  if (artifacts.length === 0) { throw new Error('Nenhum APK da variante selecionada foi encontrado após o build.'); }
-  let artifact = artifacts[0];
-  if (artifacts.length > 1) {
-    const chosen = await vscode.window.showQuickPick(artifacts.map(item => ({
-      label: item.file.split(/[\\/]/).pop() ?? item.file,
-      description: item.filters.map(filter => `${filter.filterType}: ${filter.value}`).join(', ') || item.file,
-      detail: item.file,
-      artifact: item,
-    })), { placeHolder: 'Escolha o APK compatível com o dispositivo selecionado', matchOnDescription: true });
-    if (!chosen) { return undefined; }
-    artifact = chosen.artifact;
-  }
-  const client = await getBridge();
-  const applicationId = await withCancellableProgress(`Android: instalando ${artifact.file.split(/[\\/]/).pop()} em ${serial}`,
-    signal => installApk(client, serial, artifact, target, signal));
-  installedApplicationIds.set(installedKey(target, serial), applicationId);
-  output?.appendLine(`Instalado ${applicationId} em ${serial}.`);
-  return applicationId;
 }
 
 async function startChosenAvd(): Promise<string | undefined> {
@@ -194,92 +142,47 @@ async function chooseRunDevice(): Promise<string | undefined> {
   return choice.value === 'avd' ? startChosenAvd() : requireSelectedDevice();
 }
 
-async function launchInstalled(applicationId: string, serial: string, waitForDebugger = false): Promise<boolean> {
-  const client = await getBridge();
-  const activities = await launcherActivities(client, serial, applicationId);
-  if (activities.length === 0) { throw new Error(`Nenhuma Activity MAIN/LAUNCHER encontrada para ${applicationId}.`); }
-  const component = activities.length === 1 ? activities[0] :
-    await vscode.window.showQuickPick(activities, { placeHolder: 'Escolha a Activity inicial do aplicativo' });
-  if (!component) { return false; }
-  await launchApp(client, serial, applicationId, component, undefined, waitForDebugger);
-  output?.appendLine(`Executando ${applicationId} em ${serial}: ${component}.`);
-  return true;
-}
-
-async function attachToApplication(target: GradleSelection, serial: string, applicationId: string, client: BridgeClient): Promise<boolean> {
-  const processes = await client.request<{ pids: number[] }>('debug.findProcess', { packageName: applicationId }, undefined, serial);
-  const pids = [...new Set(processes.pids)].filter(pid => Number.isSafeInteger(pid) && pid > 0);
-  if (pids.length === 0) { throw new Error(`O aplicativo ${applicationId} não está em execução em ${serial}.`); }
-  const pid = pids.length === 1 ? pids[0] : (await vscode.window.showQuickPick(pids.map(value => ({
-    label: `PID ${value}`, value
-  })), { placeHolder: `Selecione o processo de ${applicationId}` }))?.value;
-  if (!pid) { return false; }
-  const adapters: Array<{ label: string; value: AttachOptions['adapter'] }> = [];
-  if (vscode.extensions.getExtension('JetBrains.kotlin-server')) {
-    adapters.push({ label: 'Kotlin e Java (JetBrains)', value: 'intellij_jvm' });
-  }
-  if (vscode.extensions.getExtension('vscjava.vscode-java-debug')) {
-    adapters.push({ label: 'Java (Debugger for Java)', value: 'java' });
-  }
-  if (adapters.length === 0) {
-    throw new Error('Instale “Kotlin by JetBrains” ou “Debugger for Java” para conectar ao processo Android.');
-  }
-  const adapter = adapters.length === 1 ? adapters[0].value
-    : (await vscode.window.showQuickPick(adapters, { placeHolder: 'Escolha o depurador para este processo' }))?.value;
-  if (!adapter) { return false; }
-  const resolved = selection.resolve();
-  if (adapter === 'java' && (!resolved || resolved.module.root !== target.rootPath ||
-      resolved.module.path !== target.modulePath || resolved.variant.name !== target.variant)) {
-    throw new Error('A seleção do módulo mudou. Selecione novamente o aplicativo para depurar.');
-  }
-  const javaSources = adapter === 'java' && resolved
-    ? resolveSourceSets(resolved.module, resolved.variant).sourceRoots.filter(root => root.exists).map(root => root.path)
-    : undefined;
-  const started = await debugAttacher!.attach(client, {
-    serial, pid, applicationId, adapter, rootPath: target.rootPath,
-    ...(adapter === 'java' && resolved ? { projectName: resolved.module.name, sourcePaths: javaSources } : {}),
-  });
-  if (started) { output?.appendLine(`Depurador conectado a ${applicationId} em ${serial} (PID ${pid}).`); }
-  return started;
-}
-
 async function attachDebugger(): Promise<void> {
   const target = await selectedApplication();
   if (!target) { return; }
   const serial = await requireSelectedDevice();
   if (!serial) { return; }
-  const applicationId = installedApplicationIds.get(installedKey(target, serial)) ?? target.applicationId;
-  if (!applicationId) { throw new Error('O applicationId da variante não foi encontrado. Compile e instale o aplicativo primeiro.'); }
-  await attachToApplication(target, serial, applicationId, await getBridge());
+  await appFlows.attachRunning(target, serial);
 }
 
-async function debugSelected(diagnostics: BuildDiagnosticCoordinator): Promise<void> {
-  if (!vscode.extensions.getExtension('JetBrains.kotlin-server') &&
-      !vscode.extensions.getExtension('vscjava.vscode-java-debug')) {
+async function debugSelected(): Promise<void> {
+  if (installedDebugAdapters().length === 0) {
     throw new Error('Instale “Kotlin by JetBrains” ou “Debugger for Java” antes de depurar o aplicativo.');
   }
   const target = await selectedApplication();
   if (!target) { return; }
   const serial = await chooseRunDevice();
   if (!serial) { return; }
-  const applicationId = await buildAndInstall(target, serial, diagnostics);
-  if (!applicationId) { return; }
-  const client = await getBridge();
-  await client.request('debug.setWaitForDebugger', { packageName: applicationId }, undefined, serial);
-  let attached = false;
-  try {
-    await stopApp(client, serial, applicationId);
-    if (!await launchInstalled(applicationId, serial, true)) { return; }
-    await withCancellableProgress(`Android: aguardando ${applicationId} iniciar em ${serial}`,
-      signal => waitForProcess(client, serial, applicationId, signal));
-    attached = await attachToApplication(target, serial, applicationId, client);
-  } finally {
-    try {
-      await client.request('debug.clearWaitForDebugger', { packageName: applicationId }, undefined, serial);
-    } finally {
-      if (!attached) { await stopApp(client, serial, applicationId).catch(error => output?.appendLine(String(error))); }
-    }
+  await appFlows.debug(target, serial);
+}
+
+function installedDebugAdapters(): DebugAdapterChoice[] {
+  const adapters: DebugAdapterChoice[] = [];
+  if (vscode.extensions.getExtension('JetBrains.kotlin-server')) {
+    adapters.push({ label: 'Kotlin e Java (JetBrains)', value: 'intellij_jvm' });
   }
+  if (vscode.extensions.getExtension('vscjava.vscode-java-debug')) {
+    adapters.push({ label: 'Java (Debugger for Java)', value: 'java' });
+  }
+  return adapters;
+}
+
+/** The Java adapter needs the Gradle project and source roots of the variant being debugged. */
+function javaDebugContext(target: GradleSelection): { projectName: string; sourcePaths: string[] } {
+  const resolved = selection.resolve();
+  if (!resolved || resolved.module.root !== target.rootPath ||
+      resolved.module.path !== target.modulePath || resolved.variant.name !== target.variant) {
+    throw new Error('A seleção do módulo mudou. Selecione novamente o aplicativo para depurar.');
+  }
+  return {
+    projectName: resolved.module.name,
+    sourcePaths: resolveSourceSets(resolved.module, resolved.variant).sourceRoots.filter(root => root.exists).map(root => root.path),
+  };
 }
 
 function getBridge(): Promise<BridgeClient> {
@@ -352,6 +255,19 @@ export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = vscode.languages.createDiagnosticCollection('Android Gradle');
   context.subscriptions.push(diagnostics);
   const buildDiagnostics = createBuildDiagnostics(diagnostics);
+  appFlows = new AppFlows({
+    bridge: getBridge,
+    ui: createVscodeAppFlowUi(withCancellableProgress),
+    assemble: async target => {
+      let built: BuiltArtifact[] = [];
+      await executeTaskAndWait(createGradleTask(target, 'assemble', buildDiagnostics, artifacts => { built = artifacts; }));
+      return built;
+    },
+    attacher: debugAttacher,
+    debugAdapters: installedDebugAdapters,
+    javaDebugContext,
+    log: message => output?.appendLine(message),
+  });
   syncBuildDiagnostics = () => {
     const resolved = selection.resolve();
     const target = resolved ? toGradleSelection(resolved) : undefined;
@@ -406,7 +322,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try { await refreshProjects(); } catch (error) { output?.appendLine(String(error)); }
     }
     return selectedGradleTarget();
-  }, buildDiagnostics, artifacts => { lastArtifacts = artifacts; }));
+  }, buildDiagnostics));
 
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.diagnose', () => runCommand(async () => {
     const environment = await inspectEnvironment(extensionPath);
@@ -438,7 +354,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.logcat', () => runCommand(startLogcat)));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.stopLogcat', () => logcat?.stop()));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.attachDebugger', () => runCommand(attachDebugger)));
-  context.subscriptions.push(vscode.commands.registerCommand('androidSupport.debug', () => runCommand(() => debugSelected(buildDiagnostics))));
+  context.subscriptions.push(vscode.commands.registerCommand('androidSupport.debug', () => runCommand(debugSelected)));
 
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.startAvd', () => runCommand(async () => {
     await startChosenAvd();
@@ -447,25 +363,22 @@ export function activate(context: vscode.ExtensionContext): void {
     const target = await selectedApplication();
     if (!target) { return; }
     const serial = await requireSelectedDevice();
-    if (serial) { await buildAndInstall(target, serial, buildDiagnostics); }
+    if (serial) { await appFlows.buildAndInstall(target, serial); }
   })));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.run', () => runCommand(async () => {
     const target = await selectedApplication();
     if (!target) { return; }
     const serial = await chooseRunDevice();
     if (!serial) { return; }
-    const applicationId = await buildAndInstall(target, serial, buildDiagnostics);
-    if (applicationId) { await launchInstalled(applicationId, serial); }
+    const applicationId = await appFlows.buildAndInstall(target, serial);
+    if (applicationId) { await appFlows.launch(applicationId, serial); }
   })));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.stop', () => runCommand(async () => {
     const target = await selectedApplication();
     if (!target) { return; }
     const serial = await requireSelectedDevice();
     if (!serial) { return; }
-    const applicationId = applicationIdToStop(target,
-      findBuiltArtifacts(target, target.applicationId ?? null), installedApplicationIds.get(installedKey(target, serial)));
-    await stopApp(await getBridge(), serial, applicationId);
-    output?.appendLine(`Aplicativo ${applicationId} parado em ${serial}.`);
+    await appFlows.stop(target, serial);
   })));
 
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.selectModule', () => runCommand(async () => {

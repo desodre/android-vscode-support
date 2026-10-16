@@ -62,6 +62,11 @@ export function verifyJdwp(port: number, timeoutMs = 5000): Promise<void> {
   });
 }
 
+/** Distinct positive PIDs, in the order reported. */
+export function normalizePids(pids: readonly number[]): number[] {
+  return [...new Set(pids)].filter(pid => Number.isSafeInteger(pid) && pid > 0);
+}
+
 /** Waits for a freshly launched package to acquire a PID before attaching. */
 export async function waitForProcess(
   bridge: DebugBridge, serial: string, applicationId: string, signal?: AbortSignal,
@@ -73,7 +78,7 @@ export async function waitForProcess(
     const response = await bridge.request<{ pids: number[] }>(
       'debug.findProcess', { packageName: applicationId }, signal, serial,
     );
-    const pids = [...new Set(response.pids)].filter(pid => Number.isSafeInteger(pid) && pid > 0);
+    const pids = normalizePids(response.pids);
     if (pids.length > 0) { return pids; }
     const remaining = deadline - Date.now();
     if (remaining <= 0) { throw new Error(`Tempo esgotado aguardando ${applicationId} iniciar em ${serial}.`); }

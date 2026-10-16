@@ -95,6 +95,28 @@ export function createGradleTask(
   return task;
 }
 
+/** Executes `task` and resolves when its process ends with exit code 0. */
+export async function executeTaskAndWait(task: vscode.Task): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    let execution: vscode.TaskExecution | undefined;
+    const earlyEvents: vscode.TaskProcessEndEvent[] = [];
+    const finish = (event: vscode.TaskProcessEndEvent) => {
+      listener.dispose();
+      if (event.exitCode === 0) { resolve(); }
+      else { reject(new Error(`Build Android falhou ou foi cancelado (código ${event.exitCode ?? 'desconhecido'}). Veja a saída da tarefa.`)); }
+    };
+    const listener = vscode.tasks.onDidEndTaskProcess(event => {
+      if (!execution) { earlyEvents.push(event); return; }
+      if (event.execution === execution) { finish(event); }
+    });
+    void vscode.tasks.executeTask(task).then(started => {
+      execution = started;
+      const ended = earlyEvents.find(event => event.execution === started);
+      if (ended) { finish(ended); }
+    }, error => { listener.dispose(); reject(error); });
+  });
+}
+
 export function registerGradleTaskProvider(
   getSelection: (refresh: boolean) => Promise<GradleSelection | undefined>,
   diagnostics: BuildDiagnosticCoordinator,
