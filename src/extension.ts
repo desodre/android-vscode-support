@@ -6,6 +6,7 @@ import { BridgeManager } from './bridgeManager';
 import { createVscodeDeviceSelectionUi, DeviceSelectionStore } from './deviceSelection';
 import { AndroidDebugAttacher, AttachOptions, waitForProcess } from './debug/attach';
 import { listAvds, startAvd } from './emulator';
+import { LogcatSession, pickLogcatFilter } from './logcat';
 import { formatEnvironment, inspectEnvironment } from './environment';
 import { BuiltArtifact, findBuiltArtifacts } from './gradle/artifacts';
 import { BuildDiagnosticCoordinator, buildTargetKey } from './gradle/diagnosticCoordinator';
@@ -27,9 +28,7 @@ let lastArtifacts: BuiltArtifact[] = [];
 let refreshInFlight: Promise<void> | undefined;
 let syncBuildDiagnostics: (() => void) | undefined;
 let deviceSelection: DeviceSelectionStore;
-let logcatStream: ReturnType<BridgeClient['startStream']> | undefined;
-let logcatOutput: vscode.OutputChannel | undefined;
-let activeLogcatSerial: string | undefined;
+let logcat: LogcatSession | undefined;
 let debugAttacher: AndroidDebugAttacher | undefined;
 const installedApplicationIds = new Map<string, string>();
 
@@ -54,59 +53,11 @@ async function refreshDevices(): Promise<void> {
   await deviceSelection.updateDevices(devices);
 }
 
-function stopLogcat(): void {
-  logcatStream?.stop();
-  logcatStream = undefined;
-  activeLogcatSerial = undefined;
-}
-
 async function startLogcat(): Promise<void> {
   const serial = await requireSelectedDevice();
   if (!serial) { return; }
-  const filter = await vscode.window.showQuickPick([
-    { label: 'Todos os processos', value: 'all' },
-    { label: 'Aplicativo (ID do pacote)', value: 'package' },
-    { label: 'Processo (PID)', value: 'pid' }
-  ], { placeHolder: 'Filtrar o Logcat' });
-  if (!filter) { return; }
-  const params: Record<string, unknown> = {};
-  if (filter.value === 'package') {
-    const packageName = await vscode.window.showInputBox({ prompt: 'ID do pacote Android em execução', placeHolder: 'com.exemplo.app', validateInput: value =>
-      /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/.test(value) ? undefined : 'Informe um ID de pacote válido.' });
-    if (!packageName) { return; }
-    params.packageName = packageName;
-  } else if (filter.value === 'pid') {
-    const processId = await vscode.window.showInputBox({ prompt: 'PID do processo Android', validateInput: value =>
-      /^[1-9]\d*$/.test(value) ? undefined : 'Informe um PID positivo.' });
-    if (!processId) { return; }
-    params.processId = Number(processId);
-  }
-  stopLogcat();
-  const channel = logcatOutput;
-  channel?.clear();
-  channel?.appendLine(`Logcat: ${serial} · ${filter.label}`);
-  channel?.show(true);
-  const stream = (await getBridge()).startStream('logcat.stream', params, serial, (event, data) => {
-    if (event === 'logcat.entry') {
-      const entry = data as { rawLine?: string };
-      if (entry.rawLine) { channel?.appendLine(entry.rawLine); }
-    } else if (event === 'logcat.started') {
-      const started = data as { processIds?: number[] };
-      if (started.processIds?.length) { channel?.appendLine(`PIDs filtrados: ${started.processIds.join(', ')}`); }
-    } else if (event === 'logcat.filterChanged') {
-      const changed = data as { processIds?: number[] };
-      channel?.appendLine(changed.processIds?.length
-        ? `Filtro atualizado para PIDs: ${changed.processIds.join(', ')}` : 'Aguardando o aplicativo iniciar…');
-    }
-  });
-  logcatStream = stream;
-  activeLogcatSerial = serial;
-  void stream.done.catch(error => {
-    if (logcatStream === stream) {
-      output?.appendLine(`Logcat encerrado: ${error instanceof Error ? error.message : String(error)}`);
-      void vscode.window.showErrorMessage(`Android Logcat: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }).finally(() => { if (logcatStream === stream) { logcatStream = undefined; } });
+  const filter = await pickLogcatFilter();
+  if (filter) { await logcat?.start(serial, filter); }
 }
 
 function selectedGradleTarget(): GradleSelection | undefined {
@@ -403,8 +354,13 @@ export function activate(context: vscode.ExtensionContext): void {
   }));
   selection = new SelectionStore(context.workspaceState);
   deviceSelection = new DeviceSelectionStore(context.workspaceState);
-  logcatOutput = vscode.window.createOutputChannel('Android Logcat');
+  const logcatOutput = vscode.window.createOutputChannel('Android Logcat');
   context.subscriptions.push(logcatOutput);
+  logcat = new LogcatSession(async (params, serial, listener) =>
+    (await getBridge()).startStream('logcat.stream', params, serial, listener), logcatOutput, message => {
+    output?.appendLine(`Logcat encerrado: ${message}`);
+    void vscode.window.showErrorMessage(`Android Logcat: ${message}`);
+  });
   const diagnostics = vscode.languages.createDiagnosticCollection('Android Gradle');
   context.subscriptions.push(diagnostics);
   const buildDiagnostics = createBuildDiagnostics(diagnostics);
@@ -459,7 +415,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const serial = deviceSelection.selectedSerial;
     deviceStatus.text = serial ? `$(device-mobile) ${serial}` : '$(device-mobile) Android: selecionar dispositivo';
     deviceStatus.tooltip = serial ? `Dispositivo ADB selecionado: ${serial}` : 'Selecione um dispositivo ADB para executar operações';
-    if (activeLogcatSerial && activeLogcatSerial !== serial) { stopLogcat(); }
+    logcat?.stopIfSerialChanged(serial);
   };
   updateDeviceStatus();
   deviceStatus.show();
@@ -499,7 +455,7 @@ export function activate(context: vscode.ExtensionContext): void {
     await deviceSelection.pick(createVscodeDeviceSelectionUi());
   })));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.logcat', () => runCommand(startLogcat)));
-  context.subscriptions.push(vscode.commands.registerCommand('androidSupport.stopLogcat', stopLogcat));
+  context.subscriptions.push(vscode.commands.registerCommand('androidSupport.stopLogcat', () => logcat?.stop()));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.attachDebugger', () => runCommand(attachDebugger)));
   context.subscriptions.push(vscode.commands.registerCommand('androidSupport.debug', () => runCommand(() => debugSelected(buildDiagnostics))));
 
@@ -550,7 +506,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export async function deactivate(): Promise<void> {
   syncBuildDiagnostics = undefined;
-  stopLogcat();
+  logcat?.stop();
+  logcat = undefined;
   await debugAttacher?.dispose().catch(error => output?.appendLine(`Falha ao remover forward JDWP: ${String(error)}`));
   debugAttacher = undefined;
   await bridges?.dispose();
