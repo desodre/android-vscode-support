@@ -44,10 +44,11 @@ npm install
 npm run check          # tsc --noEmit
 npm run compile        # src → out/
 npm test               # compile + ./gradlew :bridge:test :bridge:installDist + node --test out/test/*.test.js
-node --test out/test/*.test.js   # só TypeScript; 6 testes de integração falham sem bridge compilado
+node --test out/test/*.test.js   # só TypeScript; os testes de integração exigem o bridge compilado (installDist)
 ```
 
-- O Gradle exige **toolchain JDK 17** (`jvmToolchain(17)`); sem ele `bridge:*` não compila.
+- O Gradle usa **toolchain JDK 17** (`jvmToolchain(17)`); se a máquina não tiver um, o plugin foojay (`settings.gradle.kts`) o baixa na primeira execução.
+- CI (`.github/workflows/ci.yml`): Linux, Windows e macOS rodam `check`, `compile`, `:bridge:test :bridge:installDist` e `node --test` em bash (no Windows, o npm usa cmd.exe, onde `./gradlew` não funciona). Testes com executáveis POSIX são pulados no Windows.
 - F5 no VS Code abre o Extension Development Host (`.vscode/launch.json`).
 - Provas reais (aparelho/AVD/LSP) são scripts opt-in em `test-fixtures/*/` — ver os READMEs de cada fixture. Não publicar serial de aparelho físico em commits, issues ou PRs.
 

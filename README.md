@@ -30,7 +30,7 @@ As configurações `androidSupport.javaHome`, `androidSupport.sdkPath` e `androi
 npm test
 ```
 
-O teste integrado usa um servidor ADB simulado em uma porta local. Ele não exige dispositivo físico.
+O teste integrado usa um servidor ADB simulado em uma porta local. Ele não exige dispositivo físico. Se não houver JDK 17 instalado, o Gradle baixa o toolchain na primeira execução. O CI repete esses passos em Linux, Windows e macOS a cada push em `main`/`dev` e em pull requests.
 
 ## Etapa 02: projetos e compilação
 
