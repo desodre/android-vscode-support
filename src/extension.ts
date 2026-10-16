@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { resolve } from 'node:path';
 import { apkCandidates, applicationIdToStop, installApk, launchApp, launcherActivities, stopApp } from './appRunner';
 import { BridgeClient, DeviceInfo } from './bridgeClient';
+import { BridgeManager } from './bridgeManager';
 import { createVscodeDeviceSelectionUi, DeviceSelectionStore } from './deviceSelection';
 import { AndroidDebugAttacher, AttachOptions, waitForProcess } from './debug/attach';
 import { listAvds, startAvd } from './emulator';
@@ -18,7 +19,7 @@ import { resourceDependencyModules } from './resourceDependencies';
 import { requireTrust, withCancellableProgress } from './ui/vscodeHelpers';
 import { registerAndroidXmlResourceSupport } from './xmlResources';
 
-let bridge: Promise<BridgeClient> | undefined;
+let bridges: BridgeManager<BridgeClient> | undefined;
 let output: vscode.OutputChannel | undefined;
 let extensionPath: string;
 let selection: SelectionStore;
@@ -26,7 +27,6 @@ let lastArtifacts: BuiltArtifact[] = [];
 let refreshInFlight: Promise<void> | undefined;
 let syncBuildDiagnostics: (() => void) | undefined;
 let deviceSelection: DeviceSelectionStore;
-let deviceTracking: ReturnType<BridgeClient['startStream']> | undefined;
 let logcatStream: ReturnType<BridgeClient['startStream']> | undefined;
 let logcatOutput: vscode.OutputChannel | undefined;
 let activeLogcatSerial: string | undefined;
@@ -331,54 +331,24 @@ async function debugSelected(diagnostics: BuildDiagnosticCoordinator): Promise<v
   }
 }
 
-function ensureDeviceTracking(client: BridgeClient): void {
-  if (deviceTracking) { return; }
-  const tracking = client.startStream('devices.track', {}, undefined, (event, data) => {
-    if (event === 'devices.changed') {
-      void deviceSelection.updateDevices(data as DeviceInfo[]).catch(error => output?.appendLine(String(error)));
-    }
-  });
-  deviceTracking = tracking;
-  void tracking.done.catch(error => {
-    if (deviceTracking === tracking && !client.isClosed) {
-      output?.appendLine(`Monitor de dispositivos encerrado: ${String(error)}`);
-    }
-  }).finally(() => {
-    if (deviceTracking === tracking) { deviceTracking = undefined; }
-  });
+function getBridge(): Promise<BridgeClient> {
+  if (!bridges) { return Promise.reject(new Error('Extensão Android desativada.')); }
+  return bridges.get();
 }
 
-async function getBridge(): Promise<BridgeClient> {
-  const previous = bridge;
-  if (previous) {
-    const client = await previous;
-    if (!client.isClosed) { ensureDeviceTracking(client); return client; }
-    if (bridge === previous) { bridge = undefined; }
+async function startBridge(): Promise<BridgeClient> {
+  const environment = await inspectEnvironment(extensionPath);
+  if (!environment.java || !environment.javaVersion || environment.javaVersion < 17 || !environment.bridgeLib) {
+    throw new Error(`Serviço Kotlin indisponível. Execute “Android: Diagnosticar ambiente”.`);
   }
-  if (!bridge) {
-    bridge = (async () => {
-      const environment = await inspectEnvironment(extensionPath);
-      if (!environment.java || !environment.javaVersion || environment.javaVersion < 17 || !environment.bridgeLib) {
-        throw new Error(`Serviço Kotlin indisponível. Execute “Android: Diagnosticar ambiente”.`);
-      }
-      const config = vscode.workspace.getConfiguration('androidSupport');
-      const client = await BridgeClient.start(
-        environment.java,
-        environment.bridgeLib,
-        config.get<string>('adbHost') || '127.0.0.1',
-        config.get<number>('adbPort') || 5037,
-        message => output?.appendLine(message)
-      );
-      deviceTracking?.stop();
-      deviceTracking = undefined;
-      ensureDeviceTracking(client);
-      return client;
-    })().catch(error => {
-      bridge = undefined;
-      throw error;
-    });
-  }
-  return bridge;
+  const config = vscode.workspace.getConfiguration('androidSupport');
+  return BridgeClient.start(
+    environment.java,
+    environment.bridgeLib,
+    config.get<string>('adbHost') || '127.0.0.1',
+    config.get<number>('adbPort') || 5037,
+    message => output?.appendLine(message)
+  );
 }
 
 async function runCommand(action: () => Promise<void>): Promise<void> {
@@ -420,6 +390,9 @@ export function activate(context: vscode.ExtensionContext): void {
   extensionPath = context.extensionPath;
   output = vscode.window.createOutputChannel('Android');
   context.subscriptions.push(output);
+  bridges = new BridgeManager(startBridge, devices => {
+    void deviceSelection.updateDevices(devices).catch(error => output?.appendLine(String(error)));
+  }, message => output?.appendLine(message));
   debugAttacher = new AndroidDebugAttacher((configuration, options) => {
     const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(options.rootPath));
     return Promise.resolve(vscode.debug.startDebugging(folder, configuration as vscode.DebugConfiguration));
@@ -578,10 +551,8 @@ export function activate(context: vscode.ExtensionContext): void {
 export async function deactivate(): Promise<void> {
   syncBuildDiagnostics = undefined;
   stopLogcat();
-  deviceTracking?.stop();
-  deviceTracking = undefined;
   await debugAttacher?.dispose().catch(error => output?.appendLine(`Falha ao remover forward JDWP: ${String(error)}`));
   debugAttacher = undefined;
-  await bridge?.then(client => client.dispose(), () => undefined);
-  bridge = undefined;
+  await bridges?.dispose();
+  bridges = undefined;
 }
