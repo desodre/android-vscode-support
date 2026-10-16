@@ -1,8 +1,8 @@
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import * as vscode from 'vscode';
 
 export interface Environment {
@@ -50,10 +50,26 @@ function javaExecutable(home: string | undefined): string | undefined {
   return executableOnPath('java');
 }
 
-function javaMajor(java: string): number | undefined {
-  const output = spawnSync(java, ['-version'], { encoding: 'utf8', timeout: 3000 });
-  const match = `${output.stderr ?? ''}\n${output.stdout ?? ''}`.match(/version\s+"(?:1\.)?(\d+)/);
-  return match ? Number(match[1]) : undefined;
+const javaVersions = new Map<string, { stamp: string; version: number }>();
+
+/** Cached per executable path and file state, so a JDK replaced in place is inspected again. */
+async function javaMajor(java: string): Promise<number | undefined> {
+  let stamp: string;
+  try {
+    const stat = statSync(java);
+    stamp = `${stat.mtimeMs}:${stat.size}:${stat.ino}`;
+  } catch { return undefined; }
+  const cached = javaVersions.get(java);
+  if (cached?.stamp === stamp) { return cached.version; }
+  const output = await new Promise<string>(resolveOutput => {
+    execFile(java, ['-version'], { encoding: 'utf8', timeout: 3000, windowsHide: true },
+      (_error, stdout, stderr) => resolveOutput(`${stderr ?? ''}\n${stdout ?? ''}`));
+  });
+  const match = output.match(/version\s+"(?:1\.)?(\d+)/);
+  if (!match) { javaVersions.delete(java); return undefined; }
+  const version = Number(match[1]);
+  javaVersions.set(java, { stamp, version });
+  return version;
 }
 
 function adbServerReachable(host: string, port: number): Promise<boolean> {
@@ -91,7 +107,7 @@ export async function inspectEnvironment(extensionPath: string): Promise<Environ
   const config = vscode.workspace.getConfiguration('androidSupport');
   const javaHome = config.get<string>('javaHome')?.trim() || process.env.JAVA_HOME;
   const java = javaExecutable(javaHome);
-  const javaVersion = java ? javaMajor(java) : undefined;
+  const javaVersion = java ? await javaMajor(java) : undefined;
   const configuredSdk = config.get<string>('sdkPath')?.trim();
   const sdk = firstSdkDirectory(configuredSdk ? [configuredSdk] : [
     process.env.ANDROID_HOME,
@@ -103,12 +119,16 @@ export async function inspectEnvironment(extensionPath: string): Promise<Environ
   const adbInSdk = sdk ? join(sdk, 'platform-tools', adbName) : undefined;
   const adb = adbInSdk && existsSync(adbInSdk) ? adbInSdk : executableOnPath('adb');
   const configuredEmulator = config.get<string>('emulatorPath')?.trim();
-  const emulator = configuredEmulator || (sdk
-    ? join(sdk, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator') : undefined);
-  const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // Same rule as emulator.ts: a configured emulator must be an absolute path to an existing executable.
+  const emulatorProblem = !configuredEmulator ? undefined
+    : !isAbsolute(configuredEmulator) ? `androidSupport.emulatorPath deve ser um caminho absoluto; valor atual: ${configuredEmulator}.`
+      : !existsSync(configuredEmulator) ? `Emulador não encontrado em ${configuredEmulator}. Corrija androidSupport.emulatorPath.`
+        : undefined;
+  const emulator = configuredEmulator ? (emulatorProblem ? undefined : configuredEmulator) : sdk
+    ? join(sdk, 'emulator', process.platform === 'win32' ? 'emulator.exe' : 'emulator') : undefined;
   const wrapperName = process.platform === 'win32' ? 'gradlew.bat' : 'gradlew';
-  const wrapperPath = workspace ? join(workspace, wrapperName) : undefined;
-  const wrapper = wrapperPath && existsSync(wrapperPath) ? wrapperPath : undefined;
+  const wrapper = (vscode.workspace.workspaceFolders ?? []).map(folder => join(folder.uri.fsPath, wrapperName))
+    .find(file => existsSync(file));
   const configuredBridge = config.get<string>('bridgeLibDirectory')?.trim();
   const bridgeLib = configuredBridge ? expandPath(configuredBridge) : join(extensionPath, 'bridge', 'build', 'install', 'bridge', 'lib');
   const bridgeReady = existsSync(bridgeLib) && readdirSync(bridgeLib).some(file => /^bridge(?:-.*)?\.jar$/.test(file));
@@ -124,7 +144,8 @@ export async function inspectEnvironment(extensionPath: string): Promise<Environ
       : 'Android SDK não encontrado. Configure androidSupport.sdkPath ou ANDROID_HOME.');
   }
   if (!adb) { problems.push('adb não encontrado. Instale Android SDK Platform-Tools.'); }
-  if (!wrapper) { problems.push('Wrapper Gradle não encontrado na pasta aberta. Abra a raiz do projeto Android que contém gradlew.'); }
+  if (emulatorProblem) { problems.push(emulatorProblem); }
+  if (!wrapper) { problems.push('Wrapper Gradle não encontrado nas pastas abertas. Abra a raiz do projeto Android que contém gradlew.'); }
   if (!bridgeReady) { problems.push('Serviço Kotlin não compilado. Na raiz da extensão, execute npm run build:bridge.'); }
   if (!adbServer) { problems.push(`Servidor ADB indisponível ou inválido em ${host}:${port}. Verifique androidSupport.adbHost/androidSupport.adbPort; para um servidor local, execute adb start-server.`); }
   return { java, javaVersion, sdk, adb, emulator, wrapper, bridgeLib: bridgeReady ? bridgeLib : undefined, adbServer, problems };

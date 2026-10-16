@@ -231,6 +231,7 @@ async function startChosenAvd(): Promise<string | undefined> {
   const environment = await inspectEnvironment(extensionPath);
   if (!environment.sdk || !environment.adb) { throw new Error('Android SDK ou adb ausente. Execute “Android: Diagnosticar ambiente”.'); }
   const emulatorPath = environment.emulator;
+  if (!emulatorPath) { throw new Error('Emulador Android inválido. Execute “Android: Diagnosticar ambiente”.'); }
   const avds = await listAvds(environment.sdk, undefined, emulatorPath);
   if (avds.length === 0) { throw new Error('Nenhum AVD existente foi encontrado no Android SDK.'); }
   const name = await vscode.window.showQuickPick(avds, { placeHolder: 'Selecione o AVD que deseja iniciar' });

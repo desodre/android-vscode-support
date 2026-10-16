@@ -12,24 +12,7 @@
   "activationEvents": [
     "onLanguage:xml",
     "onLanguage:kotlin",
-    "onLanguage:java",
-    "onCommand:androidSupport.diagnose",
-    "onCommand:androidSupport.adbVersion",
-    "onCommand:androidSupport.listDevices",
-    "onCommand:androidSupport.selectDevice",
-    "onCommand:androidSupport.logcat",
-    "onCommand:androidSupport.stopLogcat",
-    "onCommand:androidSupport.attachDebugger",
-    "onCommand:androidSupport.debug",
-    "onCommand:androidSupport.startAvd",
-    "onCommand:androidSupport.run",
-    "onCommand:androidSupport.stop",
-    "onCommand:androidSupport.build",
-    "onCommand:androidSupport.bundle",
-    "onCommand:androidSupport.install",
-    "onCommand:androidSupport.clean",
-    "onCommand:androidSupport.selectModule",
-    "onCommand:androidSupport.selectVariant"
+    "onLanguage:java"
   ],
   "contributes": {
     "commands": [
