@@ -41,11 +41,11 @@ Prova Gradle real: `lintFreeDebug` concluiu e produziu
 incluindo recursos XML, manifesto e código Kotlin. Os relatórios gerados ficam
 no diretório de build ignorado pelo Git.
 
-Pendente para aceite: verificar no VS Code os diagnósticos e e verificar navegação no painel
-Problemas e abertura do relatório HTML; analisar um APK real e comparar seus
+Pendente para aceite: verificar os diagnósticos no painel Problemas do VS Code,
+abrir o relatório HTML e analisar um APK real para comparar seus
 metadados com o manifesto. A análise AAB mostra tamanhos, mas o comando informa
 explicitamente que os metadados de manifesto exigem bundletool ainda não
 integrado. O critério de metadados APK/AAB permanece pendente para AAB.
 
-Nenhuma destas issues deve ser encerrada apenas com os testes simulados desta
-rodada; as provas funcionais e a integração da correção à main ainda são necessárias.
+Nenhuma destas issues deve ser encerrada nesta rodada: as provas funcionais na
+interface e a integração da correção à `main` ainda são necessárias.
