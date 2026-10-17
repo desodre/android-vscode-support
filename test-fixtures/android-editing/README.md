@@ -46,3 +46,9 @@ ANDROID_LANGUAGE_RESULT=/tmp/android-language-result.json code --wait \
 ```
 
 Run from the repository root after compiling the extension and building the fixture. An empty Java source-path list or missing cross-language definition means the issue remains open, even if both Gradle variants build.
+
+## Controlled semantic matrix (#23)
+
+`language-matrix-smoke.js` records exact definition targets, references, rename edits, completion markers, diagnostics, and Java source paths without changing sources. Run it separately with `ANDROID_LANGUAGE_SCENARIO=jvm`, `androidSingle`, and `androidMixed`, opening `test-fixtures/jvm-editing`, `test-fixtures/android-debug`, and this directory respectively. Build each fixture first. Use a fresh VS Code user-data directory for every scenario, the same known Java/Kotlin extension versions, JDK 21, and `java.jdt.ls.androidSupport.enabled=on` for Android scenarios. Set `ANDROID_LANGUAGE_RESULT` to a distinct local JSON file and confirm it was written. Each run samples the import at 15 and 90 seconds; an empty semantic result is recorded as a failure of that capability, not a pass.
+
+Do not attach raw local JSON reports to public issues or PRs: inspect and sanitize paths, environment details, and device identifiers first. The matrix is diagnostic evidence; #23 remains open until completion, navigation, references, rename, and diagnostics meet its acceptance criteria with real servers.
