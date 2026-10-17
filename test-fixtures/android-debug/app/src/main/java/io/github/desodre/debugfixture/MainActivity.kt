@@ -5,6 +5,10 @@ import android.os.Bundle
 import android.widget.Button
 
 class MainActivity : Activity() {
+    companion object {
+        @JvmStatic fun semanticMarker(): Int = 7
+    }
+
     private var taps = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {

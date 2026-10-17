@@ -1,0 +1,3 @@
+#!/bin/sh
+# Reuse the repository wrapper while keeping this fixture as the Gradle root.
+exec "$(dirname "$0")/../../gradlew" "$@"
