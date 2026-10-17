@@ -85,3 +85,17 @@ test('inclui diretórios estáticos customizados reportados pelo AGP somente par
     assert.equal(classifySourceFile(join(paid, 'Other.java'), layout), 'inactive');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('usa caminho de BuildConfig gerado informado pelo AGP 9 antes da convenção antiga', () => {
+  const root = mkdtempSync(join(tmpdir(), 'android-source-sets-'));
+  try {
+    const generated = join(root, 'build', 'generated', 'source', 'buildConfig', 'free', 'debug');
+    mkdirSync(generated, { recursive: true });
+    const layout = resolveSourceSets({ projectDir: root }, {
+      name: 'freeDebug', buildType: 'debug', flavors: [{ dimension: 'tier', name: 'free' }],
+      javaGeneratedDirs: [generated],
+    });
+    assert.ok(layout.generatedRoots.some(item => item.path === generated && item.exists && item.kind === 'agp'));
+    assert.equal(classifySourceFile(join(generated, 'BuildConfig.java'), layout), 'active');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

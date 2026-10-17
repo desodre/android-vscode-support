@@ -12,7 +12,7 @@ O [registro de versões do Kotlin LSP](https://github.com/Kotlin/kotlin-lsp/blob
 
 ## Ambiente observado
 
-Para a #24, o modelo de descoberta passa a incluir diretórios estáticos Java/Kotlin informados pela API pública `variant.sources` do AGP, inclusive os adicionados por plugins a uma única variante. A fixture `android-editing` prova que `app/custom/free/java` aparece em `freeDebug` e não em `paidDebug`; o layout da extensão marca esses caminhos como ativos ou inativos ao trocar a variante. Isso fornece contexto correto aos consumidores internos da extensão. A resolução de símbolos nos servidores Kotlin/Java ainda depende da validação de importação da #23; esta mudança não afirma corrigir o classpath do Java LS.
+Para a #24, o modelo de descoberta passa a incluir diretórios estáticos e gerados Java/Kotlin informados pela API pública `variant.sources` do AGP, inclusive os adicionados por plugins a uma única variante. A fixture `android-editing` prova que `app/custom/free/java` e a saída gerada de `BuildConfig` aparecem para `freeDebug` e não para `paidDebug`; o layout da extensão marca os caminhos estáticos como ativos ou inativos ao trocar a variante. O caminho real do `BuildConfig` em AGP 9 difere da convenção anterior da extensão, portanto o modelo é usado primeiro. Isso fornece contexto correto aos consumidores internos da extensão. A resolução de símbolos nos servidores Kotlin/Java ainda depende da validação de importação da #23; esta mudança não afirma corrigir o classpath do Java LS.
 
 | Item | Resultado local | Consequência |
 | --- | --- | --- |

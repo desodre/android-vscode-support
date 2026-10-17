@@ -24,7 +24,11 @@ const { classifySourceFile, resolveSourceSets } = require('../../out/sourceSets'
     assert.ok(!paid.javaSourceDirs?.includes(custom), 'paid variant must not include free-only sources');
     const layout = resolveSourceSets(app, free);
     assert.equal(classifySourceFile(path.join(custom, 'io/github/desodre/editingfixture/FreeOnly.java'), layout), 'active');
-    console.log('PASS: AGP reports custom source directories per variant');
+    const buildConfig = free.javaGeneratedDirs?.find(dir => dir.includes(`${path.sep}buildConfig${path.sep}`));
+    assert.ok(buildConfig, 'AGP must report the generated BuildConfig source directory');
+    assert.ok(layout.generatedRoots.some(item => item.path === buildConfig && item.exists));
+    assert.ok(!paid.javaGeneratedDirs?.includes(buildConfig), 'paid variant must not include free BuildConfig');
+    console.log('PASS: AGP reports static and generated source directories per variant');
   } finally {
     bridge.dispose();
   }

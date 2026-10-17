@@ -20,6 +20,9 @@ export interface AndroidVariant {
   /** Static source directories reported by AGP for this exact variant. */
   javaSourceDirs?: string[];
   kotlinSourceDirs?: string[];
+  /** Generated source directories registered with the AGP variant API. */
+  javaGeneratedDirs?: string[];
+  kotlinGeneratedDirs?: string[];
 }
 
 export interface AndroidModule {
@@ -121,7 +124,8 @@ export function normalizeDiscovery(raw: unknown, fallbackRoot: string): AndroidM
         ? [...new Set(value.filter((path): path is string => typeof path === 'string' && path.length > 0))] : undefined;
       variants.push({ name, buildType: text(variant.buildType) ?? '', flavors,
         applicationId: text(variant.applicationId), projectDependencies,
-        javaSourceDirs: sourceDirs(variant.javaSourceDirs), kotlinSourceDirs: sourceDirs(variant.kotlinSourceDirs) });
+        javaSourceDirs: sourceDirs(variant.javaSourceDirs), kotlinSourceDirs: sourceDirs(variant.kotlinSourceDirs),
+        javaGeneratedDirs: sourceDirs(variant.javaGeneratedDirs), kotlinGeneratedDirs: sourceDirs(variant.kotlinGeneratedDirs) });
     }
     variants.sort((a, b) => a.name.localeCompare(b.name));
     const flavors: FlavorSelection[] = [];

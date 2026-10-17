@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { AndroidModule, AndroidVariant } from './projectDiscovery';
 
 export type SourceLanguage = 'java' | 'kotlin';
-export type GeneratedSourceKind = 'R' | 'BuildConfig' | 'annotation' | 'ksp';
+export type GeneratedSourceKind = 'R' | 'BuildConfig' | 'annotation' | 'ksp' | 'agp';
 
 export interface SourceRoot {
   sourceSet: string;
@@ -52,7 +52,8 @@ function isWithin(path: string, parent: string): boolean {
 /** Resolve os diretórios convencionais da variante usando o catálogo Gradle já descoberto. */
 export function resolveSourceSets(
   module: Pick<AndroidModule, 'projectDir'> & Partial<Pick<AndroidModule, 'variants'>>,
-  variant: Pick<AndroidVariant, 'name' | 'buildType' | 'flavors'> & Partial<Pick<AndroidVariant, 'javaSourceDirs' | 'kotlinSourceDirs'>>,
+  variant: Pick<AndroidVariant, 'name' | 'buildType' | 'flavors'> &
+    Partial<Pick<AndroidVariant, 'javaSourceDirs' | 'kotlinSourceDirs' | 'javaGeneratedDirs' | 'kotlinGeneratedDirs'>>,
 ): SourceSetLayout {
   const moduleDir = resolve(module.projectDir);
   const sourceSetNames = namesForVariant(variant);
@@ -93,10 +94,14 @@ export function resolveSourceSets(
     ['ksp', ['build', 'generated', 'ksp', variantName, 'java']],
     ['ksp', ['build', 'generated', 'ksp', variantName, 'kotlin']],
   ] : [];
-  const generatedRoots = generated.map(([kind, parts]) => {
+  const conventionalGeneratedRoots = generated.map(([kind, parts]) => {
     const path = join(moduleDir, ...parts);
     return { kind, path, exists: isDirectory(path) };
   });
+  const reportedGeneratedRoots = [...variant.javaGeneratedDirs ?? [], ...variant.kotlinGeneratedDirs ?? []]
+    .filter(isAbsolute).map(path => ({ kind: 'agp' as const, path: resolve(path), exists: isDirectory(path) }));
+  const generatedRoots = [...reportedGeneratedRoots, ...conventionalGeneratedRoots.filter(root =>
+    !reportedGeneratedRoots.some(reported => reported.path === root.path))];
   return { moduleDir, variant: variant.name, sourceSetNames, inactiveSourceSetNames,
     sourceRoots, inactiveSourceRoots, generatedRoots };
 }
