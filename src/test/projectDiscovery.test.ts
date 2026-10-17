@@ -17,7 +17,8 @@ const raw = (rootDir: string) => ({
         variants: [
           { name: 'paidRelease', buildType: 'release', flavors: [{ dimension: 'tier', name: 'paid' }], applicationId: 'com.example.paid' },
           { name: 'freeDebug', buildType: 'debug', flavors: [{ dimension: 'tier', name: 'free' }], applicationId: null,
-            projectDependencies: [':lib', ':lib', 'external', 7] },
+            projectDependencies: [':lib', ':lib', 'external', 7],
+            javaSourceDirs: ['/r/app/custom/free', '/r/app/custom/free', 7], kotlinSourceDirs: [] },
           { name: 'freeDebug', buildType: 'debug', flavors: [] },
           { bogus: true }
         ]
@@ -40,6 +41,8 @@ test('normaliza módulos Android, variantes, flavors e build types', () => {
   assert.deepEqual(app.flavors, [{ dimension: 'tier', name: 'free' }, { dimension: 'tier', name: 'paid' }]);
   assert.equal(app.variants[1].applicationId, 'com.example.paid');
   assert.deepEqual(app.variants[0].projectDependencies, [':lib']);
+  assert.deepEqual(app.variants[0].javaSourceDirs, ['/r/app/custom/free']);
+  assert.deepEqual(app.variants[0].kotlinSourceDirs, []);
   assert.equal(modules[1].runnable, false);
 });
 

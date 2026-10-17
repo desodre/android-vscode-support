@@ -25,6 +25,12 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().withName("freeDebug")) { variant ->
+        variant.sources.java?.addStaticSourceDirectory("custom/free/java")
+    }
+}
+
 dependencies {
     implementation(project(":fixture"))
     testImplementation("junit:junit:4.13.2")

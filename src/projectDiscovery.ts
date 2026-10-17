@@ -17,6 +17,9 @@ export interface AndroidVariant {
   applicationId: string | null;
   /** Direct Gradle project dependencies declared for this variant. */
   projectDependencies?: string[];
+  /** Static source directories reported by AGP for this exact variant. */
+  javaSourceDirs?: string[];
+  kotlinSourceDirs?: string[];
 }
 
 export interface AndroidModule {
@@ -114,8 +117,11 @@ export function normalizeDiscovery(raw: unknown, fallbackRoot: string): AndroidM
       const projectDependencies = Array.isArray(variant.projectDependencies)
         ? [...new Set(variant.projectDependencies.filter((dependency): dependency is string =>
           typeof dependency === 'string' && dependency.startsWith(':')))] : [];
+      const sourceDirs = (value: unknown): string[] | undefined => Array.isArray(value)
+        ? [...new Set(value.filter((path): path is string => typeof path === 'string' && path.length > 0))] : undefined;
       variants.push({ name, buildType: text(variant.buildType) ?? '', flavors,
-        applicationId: text(variant.applicationId), projectDependencies });
+        applicationId: text(variant.applicationId), projectDependencies,
+        javaSourceDirs: sourceDirs(variant.javaSourceDirs), kotlinSourceDirs: sourceDirs(variant.kotlinSourceDirs) });
     }
     variants.sort((a, b) => a.name.localeCompare(b.name));
     const flavors: FlavorSelection[] = [];
