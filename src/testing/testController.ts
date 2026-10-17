@@ -2,6 +2,7 @@ import { sep } from 'node:path';
 import * as vscode from 'vscode';
 import { GradleSelection, runGradle } from '../gradle/runner';
 import { requireTrust } from '../ui/vscodeHelpers';
+import { selectedTestLeaves } from './testSelection';
 import {
   caseMethodName, DiscoveredClass, discoverUnitTests, failureLine, gradleTestFilter, readUnitTestResults,
 } from './unitTests';
@@ -65,14 +66,6 @@ export class AndroidUnitTestController implements vscode.Disposable {
     return item;
   }
 
-  private leaves(items: readonly vscode.TestItem[]): vscode.TestItem[] {
-    return items.flatMap(item => {
-      const children: vscode.TestItem[] = [];
-      item.children.forEach(child => children.push(child));
-      return children.length ? this.leaves(children) : [item];
-    });
-  }
-
   private async run(request: vscode.TestRunRequest, token: vscode.CancellationToken): Promise<void> {
     const run = this.controller.createTestRun(request);
     try {
@@ -82,9 +75,15 @@ export class AndroidUnitTestController implements vscode.Disposable {
       const roots: vscode.TestItem[] = [];
       this.controller.items.forEach(item => roots.push(item));
       const included = request.include ?? roots;
-      const excluded = new Set(request.exclude ?? []);
-      const leaves = this.leaves(included).filter(item => !excluded.has(item));
-      const filters = included.includes(roots[0]) ? [] : included.flatMap(item => {
+      const leaves = selectedTestLeaves(included, request.exclude ?? [], item => {
+        const children: vscode.TestItem[] = [];
+        item.children.forEach(child => children.push(child));
+        return children;
+      }, item => item.parent);
+      if (leaves.length === 0 || token.isCancellationRequested) { return; }
+      // Gradle has no negative --tests filter: restrict the run to surviving methods.
+      const filterItems = request.exclude?.length ? leaves : included;
+      const filters = !request.exclude?.length && included.includes(roots[0]) ? [] : filterItems.flatMap(item => {
         const data = this.data.get(item);
         return data ? ['--tests', gradleTestFilter(data.className, data.method)] : [];
       });
