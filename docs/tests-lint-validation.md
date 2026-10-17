@@ -17,6 +17,13 @@ Validação automatizada: TypeScript check/compile e testes Node de controller,
 seleção, descoberta/resultados JUnit, lint e análise de artefatos passaram.
 O runner Gradle e a API VS Code são simulados no teste do controller.
 
+Prova Gradle real em 17/10/2026, JDK 21, fixture `android-editing`:
+`testFreeDebugUnitTest` executou três casos; `testPaidDebugUnitTest`
+executou os dois casos compartilhados e não incluiu o teste de `testFree`.
+O filtro `--tests io.github.desodre.editingfixture.BuildFlavorTest.applicationIdIsStable`
+executou um caso no relatório JUnit XML. A prova usou Gradle diretamente,
+com um worker e heap limitado; confirma variante e filtro, mas ainda falta a UI.
+
 Pendente para aceite: prova no Test Explorer real com método, classe e suíte,
 incluindo uma falha proposital com navegação até sua linha. O fixture
 `android-editing` tem variantes `freeDebug` e `paidDebug`; os testes específicos
@@ -29,7 +36,12 @@ Os testes existentes cobrem localização/severidade de diagnósticos XML, rejei
 de relatórios antigos após falhas, categorias de tamanho ZIP e metadados de APK.
 O comando publica diagnósticos, abre o HTML e mostra o relatório de artefato.
 
-Pendente para aceite: executar lint no fixture e verificar navegação no painel
+Prova Gradle real: `lintFreeDebug` concluiu e produziu
+`lint-results-freeDebug.xml` e `.html`. O XML contém oito avisos com localização,
+incluindo recursos XML, manifesto e código Kotlin. Os relatórios gerados ficam
+no diretório de build ignorado pelo Git.
+
+Pendente para aceite: verificar no VS Code os diagnósticos e e verificar navegação no painel
 Problemas e abertura do relatório HTML; analisar um APK real e comparar seus
 metadados com o manifesto. A análise AAB mostra tamanhos, mas o comando informa
 explicitamente que os metadados de manifesto exigem bundletool ainda não
