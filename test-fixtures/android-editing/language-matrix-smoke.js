@@ -101,10 +101,19 @@ module.exports.run = async () => {
       java: vscode.extensions.getExtension('redhat.java')?.packageJSON.version,
       kotlin: vscode.extensions.getExtension('JetBrains.kotlin-server')?.packageJSON.version },
     configuredJavaAndroidSupport: vscode.workspace.getConfiguration('java').get('jdt.ls.androidSupport.enabled'),
+    kotlinStartupConfiguration: {
+      trace: vscode.workspace.getConfiguration('intellij').get('trace.server'),
+      regionConfigured: vscode.workspace.getConfiguration('intellij').inspect('region')?.globalValue !== undefined,
+    },
     samples: [],
   };
   const started = Date.now();
   try {
+    const missing = ['redhat.java', 'JetBrains.kotlin-server'].filter(id => !vscode.extensions.getExtension(id));
+    if (missing.length) {
+      report.setupError = `Extensões ausentes no perfil: ${missing.join(', ')}`;
+      throw new Error(report.setupError);
+    }
     const kotlin = await vscode.workspace.openTextDocument(path.join(root, definition.kotlin));
     const java = await vscode.workspace.openTextDocument(path.join(root, definition.java));
     const library = definition.library
@@ -166,6 +175,9 @@ module.exports.run = async () => {
         generated: definition.generated ? hasEntries(sample.generated) : undefined,
       };
       report.samples.push(sample);
+      if (process.env.ANDROID_LANGUAGE_RESULT) {
+        writeFileSync(process.env.ANDROID_LANGUAGE_RESULT, JSON.stringify(report, null, 2) + '\n');
+      }
     }
   } finally {
     if (process.env.ANDROID_LANGUAGE_RESULT) {
