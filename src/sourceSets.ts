@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { AndroidModule, AndroidVariant } from './projectDiscovery';
 
 export type SourceLanguage = 'java' | 'kotlin';
-export type GeneratedSourceKind = 'R' | 'BuildConfig' | 'annotation' | 'ksp';
+export type GeneratedSourceKind = 'R' | 'BuildConfig' | 'annotation' | 'ksp' | 'agp';
 
 export interface SourceRoot {
   sourceSet: string;
@@ -26,6 +26,8 @@ export interface SourceSetLayout {
   /** Source sets declared by other discovered variants; unknown custom sets are left unclassified. */
   inactiveSourceSetNames: string[];
   sourceRoots: SourceRoot[];
+  /** Reported static roots exclusive to another discovered variant. */
+  inactiveSourceRoots: string[];
   /** Known AGP/KSP output conventions. Check `exists` before adding to an editor classpath. */
   generatedRoots: GeneratedSourceRoot[];
 }
@@ -50,16 +52,34 @@ function isWithin(path: string, parent: string): boolean {
 /** Resolve os diretórios convencionais da variante usando o catálogo Gradle já descoberto. */
 export function resolveSourceSets(
   module: Pick<AndroidModule, 'projectDir'> & Partial<Pick<AndroidModule, 'variants'>>,
-  variant: Pick<AndroidVariant, 'name' | 'buildType' | 'flavors'>,
+  variant: Pick<AndroidVariant, 'name' | 'buildType' | 'flavors'> &
+    Partial<Pick<AndroidVariant, 'javaSourceDirs' | 'kotlinSourceDirs' | 'javaGeneratedDirs' | 'kotlinGeneratedDirs'>>,
 ): SourceSetLayout {
   const moduleDir = resolve(module.projectDir);
   const sourceSetNames = namesForVariant(variant);
   const inactiveSourceSetNames = [...new Set((module.variants ?? []).flatMap(namesForVariant))]
     .filter(name => !sourceSetNames.includes(name));
-  const sourceRoots = sourceSetNames.flatMap(sourceSet => (['java', 'kotlin'] as const).map(language => {
+  const conventionalRoots = sourceSetNames.flatMap(sourceSet => (['java', 'kotlin'] as const).map(language => {
     const path = join(moduleDir, 'src', sourceSet, language);
     return { sourceSet, language, path, exists: isDirectory(path) };
   }));
+  const reportedRoots = (['java', 'kotlin'] as const).flatMap(language => {
+    const paths = language === 'java' ? variant.javaSourceDirs : variant.kotlinSourceDirs;
+    return (paths ?? []).filter(isAbsolute).map(path => {
+      const normalized = resolve(path);
+      const parts = relative(join(moduleDir, 'src'), normalized).split(sep);
+      const sourceSet = parts.length >= 2 && parts[0] !== '..' ? parts[0] : 'variant';
+      return { sourceSet, language, path: normalized, exists: isDirectory(normalized) };
+    });
+  });
+  // AGP includes custom source directories; conventional roots remain for older model responses.
+  const sourceRoots = [...reportedRoots, ...conventionalRoots.filter(root =>
+    !reportedRoots.some(reported => reported.language === root.language && reported.path === root.path))];
+  const activePaths = new Set(sourceRoots.map(root => root.path));
+  const inactiveSourceRoots = [...new Set((module.variants ?? [])
+    .filter(candidate => candidate.name !== variant.name)
+    .flatMap(candidate => [...candidate.javaSourceDirs ?? [], ...candidate.kotlinSourceDirs ?? []])
+    .filter(isAbsolute).map(path => resolve(path)))].filter(path => !activePaths.has(path));
 
   // AGP moved R and BuildConfig output paths across releases. These paths are candidates,
   // never evidence that a generated class exists; only existing directories enter classpaths.
@@ -74,11 +94,16 @@ export function resolveSourceSets(
     ['ksp', ['build', 'generated', 'ksp', variantName, 'java']],
     ['ksp', ['build', 'generated', 'ksp', variantName, 'kotlin']],
   ] : [];
-  const generatedRoots = generated.map(([kind, parts]) => {
+  const conventionalGeneratedRoots = generated.map(([kind, parts]) => {
     const path = join(moduleDir, ...parts);
     return { kind, path, exists: isDirectory(path) };
   });
-  return { moduleDir, variant: variant.name, sourceSetNames, inactiveSourceSetNames, sourceRoots, generatedRoots };
+  const reportedGeneratedRoots = [...variant.javaGeneratedDirs ?? [], ...variant.kotlinGeneratedDirs ?? []]
+    .filter(isAbsolute).map(path => ({ kind: 'agp' as const, path: resolve(path), exists: isDirectory(path) }));
+  const generatedRoots = [...reportedGeneratedRoots, ...conventionalGeneratedRoots.filter(root =>
+    !reportedGeneratedRoots.some(reported => reported.path === root.path))];
+  return { moduleDir, variant: variant.name, sourceSetNames, inactiveSourceSetNames,
+    sourceRoots, inactiveSourceRoots, generatedRoots };
 }
 
 function namesForVariant(variant: Pick<AndroidVariant, 'name' | 'buildType' | 'flavors'>): string[] {
@@ -97,6 +122,8 @@ function namesForVariant(variant: Pick<AndroidVariant, 'name' | 'buildType' | 'f
 export function classifySourceFile(file: string, layout: SourceSetLayout): SourceFileActivity {
   const path = resolve(file);
   if (!isWithin(path, layout.moduleDir)) { return 'unrelated'; }
+  if (layout.sourceRoots.some(root => isWithin(path, root.path))) { return 'active'; }
+  if (layout.inactiveSourceRoots.some(root => isWithin(path, root))) { return 'inactive'; }
   const parts = relative(layout.moduleDir, path).split(sep);
   if (parts[0] === 'src' && parts.length >= 4 && (parts[2] === 'java' || parts[2] === 'kotlin')) {
     return layout.sourceSetNames.includes(parts[1]) ? 'active'

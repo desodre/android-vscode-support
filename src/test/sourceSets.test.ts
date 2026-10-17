@@ -65,3 +65,37 @@ test('componentes inválidos do catálogo não criam diretórios fora do módulo
     assert.ok(layout.sourceRoots.every(item => item.path.startsWith(join(root, 'src') + sep)));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('inclui diretórios estáticos customizados reportados pelo AGP somente para a variante ativa', () => {
+  const root = mkdtempSync(join(tmpdir(), 'android-source-sets-'));
+  try {
+    const free = join(root, 'custom', 'freeJava');
+    const paid = join(root, 'custom', 'paidJava');
+    mkdirSync(free, { recursive: true });
+    mkdirSync(paid, { recursive: true });
+    const layout = resolveSourceSets({ projectDir: root, variants: [{
+      name: 'paidDebug', buildType: 'debug', flavors: [{ dimension: 'tier', name: 'paid' }],
+      applicationId: null, javaSourceDirs: [paid], kotlinSourceDirs: [],
+    }] }, {
+      name: 'freeDebug', buildType: 'debug', flavors: [{ dimension: 'tier', name: 'free' }],
+      javaSourceDirs: [free], kotlinSourceDirs: [],
+    });
+    assert.ok(layout.sourceRoots.some(item => item.path === free && item.exists && item.language === 'java'));
+    assert.equal(classifySourceFile(join(free, 'Extra.java'), layout), 'active');
+    assert.equal(classifySourceFile(join(paid, 'Other.java'), layout), 'inactive');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('usa caminho de BuildConfig gerado informado pelo AGP 9 antes da convenção antiga', () => {
+  const root = mkdtempSync(join(tmpdir(), 'android-source-sets-'));
+  try {
+    const generated = join(root, 'build', 'generated', 'source', 'buildConfig', 'free', 'debug');
+    mkdirSync(generated, { recursive: true });
+    const layout = resolveSourceSets({ projectDir: root }, {
+      name: 'freeDebug', buildType: 'debug', flavors: [{ dimension: 'tier', name: 'free' }],
+      javaGeneratedDirs: [generated],
+    });
+    assert.ok(layout.generatedRoots.some(item => item.path === generated && item.exists && item.kind === 'agp'));
+    assert.equal(classifySourceFile(join(generated, 'BuildConfig.java'), layout), 'active');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
