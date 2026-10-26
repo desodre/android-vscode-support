@@ -4,6 +4,8 @@ This small Gradle project has a Kotlin app, a Java library, and `free`/`paid` fl
 
 JUnit 4 unit tests cover the Test Explorer integration: `app/src/test` (Kotlin, including a backtick method name) runs for both flavors and `app/src/testFree` (Java) only for `free` variants. `./gradlew -p test-fixtures/android-editing :app:testFreeDebugUnitTest` runs all three; `testPaidDebugUnitTest` runs the two shared ones.
 
+Issue #24 uses `app/custom/free/java` as a static Java source directory registered only on `freeDebug` through the public AGP variant API. After `npm run compile`, `./gradlew :bridge:installDist -q`, and `:app:assembleFreeDebug`, run `node test-fixtures/android-editing/variant-source-smoke.js` with `JAVA_HOME` set to JDK 21. It checks that discovery includes the custom directory and generated `BuildConfig` only for the proper variant and that the extension classifies the custom file as active.
+
 The opt-in `xml-navigation-smoke.js` runs in a VS Code Extension Development Host and verifies:
 
 - Manifest components navigate to Kotlin and Java classes; its label navigates to `strings.xml`.

@@ -37,11 +37,24 @@ gradle.allprojects { Project p ->
                 if (type == 'application') {
                     try { applicationId = variant.applicationId.getOrNull() } catch (Throwable ignored) { }
                 }
+                def javaSources = null
+                def kotlinSources = null
+                def allJavaSources = null
+                def allKotlinSources = null
+                try { javaSources = variant.sources.java?.getStatic() } catch (MissingPropertyException ignored) { }
+                try { kotlinSources = variant.sources.kotlin?.getStatic() } catch (MissingPropertyException ignored) { }
+                try { allJavaSources = variant.sources.java?.getAll() } catch (MissingPropertyException ignored) { }
+                try { allKotlinSources = variant.sources.kotlin?.getAll() } catch (MissingPropertyException ignored) { }
                 info.variants << [
                     name         : variant.name,
                     buildType    : variant.buildType,
                     flavors      : flavors,
                     applicationId: applicationId,
+                    // Keep providers until model creation so other plugins can add static directories.
+                    javaSources  : javaSources,
+                    kotlinSources: kotlinSources,
+                    allJavaSources  : allJavaSources,
+                    allKotlinSources: allKotlinSources,
                 ]
             }
         }
@@ -87,7 +100,18 @@ class DiscoveryBuilder implements ToolingModelBuilder {
                         configuration == null ? [] : configuration.dependencies.withType(ProjectDependency)
                             .collect { it.path }
                     }.unique().sort()
-                    new LinkedHashMap(variant) + [projectDependencies: dependencies]
+                    def staticPaths = { provider ->
+                        provider == null ? [] : provider.getOrElse([]).collect { it.asFile.absolutePath }.unique().sort()
+                    }
+                    def result = new LinkedHashMap(variant)
+                    result.javaSourceDirs = staticPaths(result.remove('javaSources'))
+                    result.kotlinSourceDirs = staticPaths(result.remove('kotlinSources'))
+                    def conventionalJava = sourceSets.collect { new File(p.projectDir, "src/${it}/java").absolutePath }
+                    def conventionalKotlin = sourceSets.collect { new File(p.projectDir, "src/${it}/kotlin").absolutePath }
+                    result.javaGeneratedDirs = staticPaths(result.remove('allJavaSources')) - result.javaSourceDirs - conventionalJava
+                    result.kotlinGeneratedDirs = staticPaths(result.remove('allKotlinSources')) - result.kotlinSourceDirs - conventionalKotlin
+                    result.projectDependencies = dependencies
+                    result
                 }
             }
             [path: p.path, name: p.name, projectDir: p.projectDir.absolutePath, android: androidResult]
